@@ -1,0 +1,9 @@
+Filename,Label
+DM.csv,Demographics
+DS.csv,Disposition
+EX.csv,Exposure
+RS.csv,Disease Response
+TA.csv,Trial Arms
+TR.csv,Tumor Results
+TU.csv,Tumor Identification
+TV.csv,Trial Visits
