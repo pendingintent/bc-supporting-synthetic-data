@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository contains synthetic clinical trial data modeled after **NCT01797120 (PrE0102)** — a Phase II randomized trial of Fulvestrant +/- Everolimus in postmenopausal HR+ metastatic breast cancer (n=131, all female). The data is purely synthetic (`STUDYID = "SYNTH-ONC-001"`) and is not real patient data.
+This repository contains synthetic clinical trial data modeled after **NCT01797120 (PrE0102)** — a Phase II randomized trial of Fulvestrant +/- Everolimus in postmenopausal HR+ metastatic breast cancer (n=131, all female). The data is purely synthetic (`STUDYID = "NCT01797120"`) and is not real patient data.
 
 The source trial compared:
 - **Treatment arm**: Fulvestrant 500 mg + Everolimus 10 mg daily (n=66)
@@ -25,7 +25,7 @@ Primary endpoint: Progression-Free Survival (PFS). Published results: median PFS
 **SDTM domains:** `DM`, `EX`, `TR`, `RS`, `DS`, `TV`, `TA`
 **ADaM datasets:** `ADSL`, `ADTTE`
 
-Key variables: `USUBJID` (format: `SYNTH-ONC-001-NNNN`), `TRT01A` (`"Treatment"` / `"Placebo"`), `RSSTRESC` (`PR`, `SD`, `PD` per RECIST criteria), `PFS`/`CNSR` for time-to-event analysis.
+Key variables: `USUBJID` (format: `NCT01797120-NNNN`), `TRT01A` (`"Treatment"` / `"Placebo"`), `RSSTRESC` (`PR`, `SD`, `PD` per RECIST criteria), `PFS`/`CNSR` for time-to-event analysis.
 
 ## Running the Data Generation
 

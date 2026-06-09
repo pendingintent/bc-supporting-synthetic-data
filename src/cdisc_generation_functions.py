@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-STUDYID = "SYNTH-ONC-001"
+STUDYID = "NCT01797120"
 
 # Boundary between INDUCTION (blinded) and CONTINUATION (open) epochs: 12 x 28 days
 _INDUCTION_DAYS = 12 * 28  # 336 days

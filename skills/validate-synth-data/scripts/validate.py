@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Validation script for SYNTH-ONC-001 synthetic CDISC datasets.
+Validation script for NCT01797120 synthetic CDISC datasets.
 Usage: python validate.py --datasets <path> [--output <report.md>]
 Exit code: 0 = all pass, 1 = any failure.
 """
@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pandas as pd
 
-STUDYID = "SYNTH-ONC-001"
-USUBJID_RE = re.compile(r"^SYNTH-ONC-001-\d{4}$")
+STUDYID = "NCT01797120"
+USUBJID_RE = re.compile(r"^NCT01797120-\d{4}$")
 
 TARGET_PFS = {"Treatment": 314, "Placebo": 155}
 PFS_TOLERANCE = 0.20  # ±20%
@@ -58,7 +58,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
 
     # DM
     dm = _load(datasets, "DM")
-    _check(r, "DM: STUDYID = SYNTH-ONC-001", (dm["STUDYID"] == STUDYID).all(),
+    _check(r, "DM: STUDYID = NCT01797120", (dm["STUDYID"] == STUDYID).all(),
            f"{(dm['STUDYID'] != STUDYID).sum()} bad rows")
     _check(r, "DM: DOMAIN = DM", (dm["DOMAIN"] == "DM").all())
     _check(r, "DM: all subjects female (SEX=F)", (dm["SEX"] == "F").all(),
@@ -69,7 +69,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
     _check(r, "DM: DTHFL ∈ {Y, N}",
            dm["DTHFL"].isin({"Y", "N"}).all())
     bad_ids = (~dm["USUBJID"].str.match(USUBJID_RE)).sum()
-    _check(r, "DM: USUBJID format SYNTH-ONC-001-NNNN", bad_ids == 0,
+    _check(r, "DM: USUBJID format NCT01797120-NNNN", bad_ids == 0,
            f"{bad_ids} malformed IDs")
     _check(r, "DM: AGEU = YEARS (CG0432)",
            ("AGEU" in dm.columns) and (dm["AGEU"] == "YEARS").all())
@@ -669,7 +669,7 @@ def build_report(datasets: Path, categories: dict[str, list[CheckResult]],
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Validate SYNTH-ONC-001 datasets")
+    parser = argparse.ArgumentParser(description="Validate NCT01797120 datasets")
     parser.add_argument("--datasets", default="./datasets",
                         help="Path to directory containing CSV files")
     parser.add_argument("--output", default="validation_report.md",

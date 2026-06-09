@@ -2,7 +2,7 @@
 name: validate-synth-data
 description: >
   Validates the CDISC SDTM/ADaM synthetic datasets for the NCT01797120 (PrE0102) study
-  (STUDYID=SYNTH-ONC-001). Runs four check categories: (1) CDISC structural compliance per
+  (STUDYID=NCT01797120). Runs four check categories: (1) CDISC structural compliance per
   domain, (2) cross-domain subject/treatment-arm integrity, (3) RECIST derivation consistency
   between TR and RS, and (4) PFS results fidelity vs. published trial medians (10.3 vs 5.1
   months). Use this skill whenever the user asks to validate, check, QC, or audit the
@@ -60,7 +60,7 @@ Per-domain checks on required columns, controlled terminology, and value formats
 
 | Domain | Key checks |
 |--------|-----------|
-| DM | STUDYID=SYNTH-ONC-001, DOMAIN=DM, SEX=F for all, ARMCD ∈ {TRT,PLC}, DTHFL ∈ {Y,N}, USUBJID pattern SYNTH-ONC-001-NNNN |
+| DM | STUDYID=NCT01797120, DOMAIN=DM, SEX=F for all, ARMCD ∈ {TRT,PLC}, DTHFL ∈ {Y,N}, USUBJID pattern NCT01797120-NNNN |
 | EX | EXTRT ∈ {FULVESTRANT,EVEROLIMUS,PLACEBO}, EXDOSU=mg, EXDOSE > 0, EXROUTE ∈ {INTRAMUSCULAR,ORAL} |
 | TR | TRTESTCD=DIAM, TRSTRESU=mm, TRSTRESN > 0, ABLFL ∈ {Y,""} |
 | RS | RSTESTCD=OVRLRESP, RSSTRESC ∈ {PR,SD,PD} |
@@ -91,7 +91,7 @@ The report must follow this template exactly:
 
 ```markdown
 # Synthetic Dataset Validation Report
-**Study:** SYNTH-ONC-001  
+**Study:** NCT01797120  
 **Datasets path:** <path>  
 **Generated:** <date>  
 **N subjects:** <n>

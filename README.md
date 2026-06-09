@@ -2,7 +2,7 @@
 
 Synthetic CDISC-compliant datasets modeled after **NCT01797120 (PrE0102)** — a Phase II randomized trial of Fulvestrant ± Everolimus in postmenopausal HR+ metastatic breast cancer.
 
-> **All data is purely synthetic.** Study ID `SYNTH-ONC-001`. No real patient data is present in this repository.
+> **All data is purely synthetic.** Study ID `NCT01797120`. No real patient data is present in this repository.
 
 ---
 
@@ -70,7 +70,7 @@ bc-supporting-synthetic-data/
 
 | Variable | Description |
 |---|---|
-| `USUBJID` | Unique subject ID — format `SYNTH-ONC-001-NNNN` |
+| `USUBJID` | Unique subject ID — format `NCT01797120-NNNN` |
 | `TRT01A` | Actual treatment arm — `"Treatment"` or `"Placebo"` |
 | `RSSTRESC` | RECIST 1.1 response — `CR`, `PR`, `SD`, `PD`, or `NE` |
 | `AVAL` | Analysis value (days to progression or censoring) in ADTTE |

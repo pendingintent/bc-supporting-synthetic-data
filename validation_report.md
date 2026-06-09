@@ -1,5 +1,5 @@
 # Synthetic Dataset Validation Report
-**Study:** SYNTH-ONC-001  
+**Study:** NCT01797120  
 **Datasets path:** /Users/dmoreland/projects/bc-supporting-synthetic-data/datasets  
 **Generated:** 2026-06-09  
 **N subjects:** 200
@@ -22,12 +22,12 @@
 ## Detailed Results
 
 ### Category 1 — CDISC Structural
-✓ PASS — DM: STUDYID = SYNTH-ONC-001 (0 bad rows)
+✓ PASS — DM: STUDYID = NCT01797120 (0 bad rows)
 ✓ PASS — DM: DOMAIN = DM
 ✓ PASS — DM: all subjects female (SEX=F) (0 non-F rows)
 ✓ PASS — DM: ARMCD ∈ {TRT, PLC} (0 bad values)
 ✓ PASS — DM: DTHFL ∈ {Y, N}
-✓ PASS — DM: USUBJID format SYNTH-ONC-001-NNNN (0 malformed IDs)
+✓ PASS — DM: USUBJID format NCT01797120-NNNN (0 malformed IDs)
 ✓ PASS — DM: AGEU = YEARS (CG0432)
 ✓ PASS — DM: RFENDTC present and = RFPENDTC (CG0142)
 ✓ PASS — DM: RFICDTC non-empty
