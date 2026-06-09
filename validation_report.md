@@ -17,7 +17,7 @@
 | Category 7 — PFS Fidelity | 2 | 2 | 0 |
 | **Total** | **100** | **100** | **0** |
 
-**Overall: **PASS ✓****
+**Overall: PASS ✓**
 
 ## Detailed Results
 
