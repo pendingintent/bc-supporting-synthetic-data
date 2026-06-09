@@ -63,12 +63,22 @@ def create_dm(n=200):
     ]
     rfstdtc = [d.strftime("%Y-%m-%d") for d in rfstdtc_dates]
 
+    _race = np.random.choice(
+        ["WHITE", "BLACK OR AFRICAN AMERICAN", "ASIAN", "OTHER"],
+        size=n, p=[0.75, 0.12, 0.08, 0.05],
+    )
+    _ethnic = np.random.choice(
+        ["NOT HISPANIC OR LATINO", "HISPANIC OR LATINO"],
+        size=n, p=[0.85, 0.15],
+    )
+
     dm = pd.DataFrame({
         "SUBJID":  [f"{i:04d}" for i in range(1, n + 1)],
-        "DMSEQ":   range(1, n + 1),
         "AGE":     np.clip(np.random.normal(55, 10, n), 20, 80).astype(int),
         "AGEU":    "YEARS",
         "SEX":     "F",
+        "RACE":    _race,
+        "ETHNIC":  _ethnic,
         "RFICDTC": rficdtc,
         "RFSTDTC": rfstdtc,
         "TRT01A":  arms,  # internal helper; excluded from CSV DM output
@@ -81,6 +91,8 @@ def create_dm(n=200):
     dm["STUDYID"]  = STUDYID
     dm["DOMAIN"]   = "DM"
     dm["USUBJID"]  = STUDYID + "-" + dm["SUBJID"]
+    dm["SITEID"]   = "0001"
+    dm["COUNTRY"]  = "USA"
     dm["ACTARMCD"] = dm["ARMCD"]
     dm["ACTARM"]   = dm["ARM"]
     return dm
@@ -104,7 +116,7 @@ def finalize_dm(dm, ex, events):
         events[["USUBJID", "DIED", "DTHDT", "FOLLOWUP_END"]], on="USUBJID", how="left"
     )
 
-    dm["DTHFL"] = dm["DIED"].map({True: "Y", False: "N"}).fillna("N")
+    dm["DTHFL"] = dm["DIED"].map({True: "Y"}).fillna("")
 
     def _safe_dthdtc(row):
         if row["DIED"] and pd.notna(row["DTHDT"]):
@@ -128,10 +140,10 @@ def finalize_dm(dm, ex, events):
     dm = dm.drop(columns=["DIED", "DTHDT", "FOLLOWUP_END"])
 
     return dm[[
-        "STUDYID", "DOMAIN", "USUBJID", "SUBJID", "DMSEQ",
-        "AGE", "AGEU", "SEX", "RFICDTC", "RFSTDTC", "RFXSTDTC", "RFXENDTC", "RFPENDTC",
-        "RFENDTC", "ARMCD", "ARM", "ACTARMCD", "ACTARM",
-        "DTHFL", "DTHDTC",
+        "STUDYID", "DOMAIN", "USUBJID", "SUBJID",
+        "RFSTDTC", "RFENDTC", "RFXSTDTC", "RFXENDTC", "RFICDTC", "RFPENDTC",
+        "DTHDTC", "DTHFL", "SITEID", "AGE", "AGEU", "SEX", "RACE", "ETHNIC",
+        "ARMCD", "ARM", "ACTARMCD", "ACTARM", "COUNTRY",
         "TRT01A",   # internal helper — stripped from CSV output in __main__
     ]]
 
@@ -169,14 +181,16 @@ def create_ex(dm):
         for offset, dose in inj_schedule:
             inj_date = start + timedelta(days=offset)
             stdy = _study_day(inj_date, rfstdtc)
+            ex_epoch = "INDUCTION" if offset <= _INDUCTION_DAYS else "CONTINUATION"
             records.append({
                 "STUDYID": STUDYID, "DOMAIN": "EX", "USUBJID": usubjid,
                 "EXSEQ": seq, "EXTRT": "FULVESTRANT",
-                "EXDOSE": dose, "EXDOSU": "mg",
-                "EXROUTE": "INTRAMUSCULAR", "EXFREQ": "ONCE",
+                "EXDOSE": dose, "EXDOSU": "mg", "EXDOSFRM": "SOLUTION",
+                "EXDOSFRQ": "ONCE", "EXROUTE": "INTRAMUSCULAR",
                 "EXSTDTC": inj_date.strftime("%Y-%m-%d"),
                 "EXENDTC": inj_date.strftime("%Y-%m-%d"),
                 "EXSTDY": stdy, "EXENDY": stdy,
+                "EPOCH": ex_epoch,
             })
             seq += 1
 
@@ -187,12 +201,13 @@ def create_ex(dm):
         records.append({
             "STUDYID": STUDYID, "DOMAIN": "EX", "USUBJID": usubjid,
             "EXSEQ": seq, "EXTRT": second_drug,
-            "EXDOSE": second_dose, "EXDOSU": "mg",
-            "EXROUTE": "ORAL", "EXFREQ": "QD",
+            "EXDOSE": second_dose, "EXDOSU": "mg", "EXDOSFRM": "TABLET",
+            "EXDOSFRQ": "QD", "EXROUTE": "ORAL",
             "EXSTDTC": start.strftime("%Y-%m-%d"),
             "EXENDTC": end.strftime("%Y-%m-%d"),
             "EXSTDY": _study_day(start, rfstdtc),
             "EXENDY": _study_day(end,   rfstdtc),
+            "EPOCH": "INDUCTION",
         })
 
     return pd.DataFrame(records)
@@ -319,18 +334,20 @@ def derive_events(ex, dm):
 _NE_PROB = 0.03   # probability that any individual post-baseline assessment is not evaluable
 
 def _tr_record(studyid, usubjid, seq, testcd, test, grpid, lnkid,
-               trstresn, trdtc, visitnum, visit, trdy, lobxfl, epoch,
+               trstresn, trdtc, visitnum, visit, trdy, trlobxfl, epoch,
                trstat="", trreasnd=""):
+    _resn_str = str(trstresn) if trstresn != "" else ""
     return {
         "STUDYID": studyid, "DOMAIN": "TR",
         "USUBJID":  usubjid, "TRSEQ": seq,
         "TRTESTCD": testcd,  "TRTEST": test,
         "TRGRPID":  grpid,   "TRLNKID": lnkid,
+        "TRORRES":  _resn_str, "TRSTRESC": _resn_str,
         "TRSTRESN": trstresn, "TRSTRESU": "mm",
         "TRSTAT":   trstat,   "TRREASND": trreasnd,
         "TRMETHOD": "CT SCAN", "TREVAL": "INVESTIGATOR",
         "TRDTC": trdtc, "VISITNUM": visitnum, "VISIT": visit,
-        "TRDY": trdy, "LOBXFL": lobxfl, "EPOCH": epoch,
+        "TRDY": trdy, "TRLOBXFL": trlobxfl, "EPOCH": epoch,
     }
 
 
@@ -357,12 +374,13 @@ def create_tr(ex, events, dm):
     merged = (
         ex_starts
         .merge(events[["USUBJID", "PROGDT", "RESPONDER"]])
-        .merge(dm[["USUBJID", "TRT01A"]])
+        .merge(dm[["USUBJID", "TRT01A", "RFSTDTC"]])
     )
 
     for _, row in merged.iterrows():
-        uid   = row["USUBJID"]
-        arm   = row["TRT01A"]
+        uid         = row["USUBJID"]
+        arm         = row["TRT01A"]
+        rfstdtc_str = str(row["RFSTDTC"])[:10]
         tp    = _TUMOUR[arm]
         drift = tp["drift_resp"] if row["RESPONDER"] else tp["drift_nonresp"]
         noise = tp["noise"]
@@ -405,6 +423,7 @@ def create_tr(ex, events, dm):
             visitnum = v + 2
             visit    = f"WEEK {v * 12}"
             epoch    = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
+            trdy     = _study_day(date, rfstdtc_str)
 
             # ~3% of visits are not evaluable (imaging quality)
             if np.random.rand() < _NE_PROB:
@@ -413,13 +432,13 @@ def create_tr(ex, events, dm):
                         STUDYID, uid, seq,
                         "LDIAM", "Longest Diameter",
                         f"TARGET LESION {li + 1}", f"TL{li + 1}",
-                        "", dtc, visitnum, visit, day, "", epoch,
+                        "", dtc, visitnum, visit, trdy, "", epoch,
                         trstat="NOT DONE", trreasnd="IMAGING QUALITY ISSUES",
                     )); seq += 1
                 tr.append(_tr_record(
                     STUDYID, uid, seq,
                     "SUMDIAM", "Sum of Diameter", "TARGET", "",
-                    "", dtc, visitnum, visit, day, "", epoch,
+                    "", dtc, visitnum, visit, trdy, "", epoch,
                     trstat="NOT DONE", trreasnd="IMAGING QUALITY ISSUES",
                 )); seq += 1
                 continue
@@ -436,14 +455,14 @@ def create_tr(ex, events, dm):
                     "LDIAM", "Longest Diameter",
                     f"TARGET LESION {li + 1}", f"TL{li + 1}",
                     round(float(current_sizes[li]), 2),
-                    dtc, visitnum, visit, day, "", epoch,
+                    dtc, visitnum, visit, trdy, "", epoch,
                 )); seq += 1
 
             sumd = round(float(sum(current_sizes[:n_lesions])), 2)
             tr.append(_tr_record(
                 STUDYID, uid, seq,
                 "SUMDIAM", "Sum of Diameter", "TARGET", "",
-                sumd, dtc, visitnum, visit, day, "", epoch,
+                sumd, dtc, visitnum, visit, trdy, "", epoch,
             )); seq += 1
 
     return pd.DataFrame(tr)
@@ -472,14 +491,14 @@ def derive_rs(tr):
 
     # Baseline SUMDIAM (LOBXFL=Y)
     baseline_sumd = (
-        sumdiam[sumdiam["LOBXFL"] == "Y"]
+        sumdiam[sumdiam["TRLOBXFL"] == "Y"]
         .set_index("USUBJID")["TRSTRESN"]
         .rename("BASE_SUMD")
     )
 
     # Post-baseline SUMDIAM rows
     post = (
-        sumdiam[sumdiam["LOBXFL"] != "Y"]
+        sumdiam[sumdiam["TRLOBXFL"] != "Y"]
         .merge(baseline_sumd.reset_index(), on="USUBJID", how="left")
     )
 
@@ -522,7 +541,14 @@ def derive_rs(tr):
             if row["RSSTRESC"] == "PD":
                 break
 
-    return pd.DataFrame(rs)
+    df = pd.DataFrame(rs)
+    df["RSCAT"]   = "TUMOR MEASUREMENT"
+    df["RSORRES"] = df["RSSTRESC"]
+    return df[[
+        "STUDYID", "DOMAIN", "USUBJID", "RSSEQ", "RSTESTCD", "RSTEST",
+        "RSCAT", "RSORRES", "RSSTRESC",
+        "RSDTC", "VISITNUM", "VISIT", "RSDY", "EPOCH", "RSDRVFL",
+    ]]
 
 
 # ── TU ───────────────────────────────────────────────────────────────────────
@@ -554,7 +580,7 @@ def create_tu(dm, tr):
     """
     rfstdtc_map = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
     # Lesion baselines from TR (LDIAM + LOBXFL=Y, excludes SUMDIAM)
-    ldiam_bl = tr[(tr["TRTESTCD"] == "LDIAM") & (tr["LOBXFL"] == "Y")]
+    ldiam_bl = tr[(tr["TRTESTCD"] == "LDIAM") & (tr["TRLOBXFL"] == "Y")]
 
     tu  = []
     seq = 1
@@ -593,7 +619,14 @@ def create_tu(dm, tr):
                 "TUDTC": rfstdtc, "TUDY": 1,
             }); seq += 1
 
-    return pd.DataFrame(tu)
+    df = pd.DataFrame(tu)
+    df["TULOBXFL"] = "Y"
+    return df[[
+        "STUDYID", "DOMAIN", "USUBJID", "TUSEQ", "TUTESTCD", "TUTEST",
+        "TULNKID", "TUORRES", "TUSTRESC", "TULOC", "TULAT",
+        "TUMETHOD", "TUEVAL", "TULOBXFL",
+        "EPOCH", "VISITNUM", "VISIT", "TUDTC", "TUDY",
+    ]]
 
 
 # ── DS ───────────────────────────────────────────────────────────────────────
@@ -663,14 +696,14 @@ def create_ds(dm, ex, events):
         seq = 1
 
         # 1. Informed consent
-        # CG0073: EPOCH must be null for PROTOCOL MILESTONE records
         # CG0066: DSTERM must equal DSDECOD for PROTOCOL MILESTONE records
+        # FB2201: EPOCH required for all subject-level clinical observations
         ds.append({
             "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
             "DSSEQ": seq, "DSCAT": "PROTOCOL MILESTONE", "DSSCAT": "",
             "DSTERM": "INFORMED CONSENT OBTAINED",
             "DSDECOD": "INFORMED CONSENT OBTAINED",
-            "DSDTC": str(row["RFICDTC"])[:10], "EPOCH": "",
+            "DSSTDTC": str(row["RFICDTC"])[:10], "EPOCH": "SCREENING",
         }); seq += 1
 
         # 2. Randomization
@@ -679,7 +712,7 @@ def create_ds(dm, ex, events):
             "DSSEQ": seq, "DSCAT": "PROTOCOL MILESTONE", "DSSCAT": "",
             "DSTERM": "RANDOMIZED",
             "DSDECOD": "RANDOMIZED",
-            "DSDTC": str(row["RFSTDTC"])[:10], "EPOCH": "",
+            "DSSTDTC": str(row["RFSTDTC"])[:10], "EPOCH": "SCREENING",
         }); seq += 1
 
         # 3. Fulvestrant discontinuation
@@ -687,7 +720,7 @@ def create_ds(dm, ex, events):
             "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
             "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": "FULVESTRANT",
             "DSTERM": stop_reason, "DSDECOD": stop_reason,
-            "DSDTC": stop_dtc, "EPOCH": tx_epoch,
+            "DSSTDTC": stop_dtc, "EPOCH": tx_epoch,
         }); seq += 1
 
         # 4. Everolimus / Placebo discontinuation
@@ -695,7 +728,7 @@ def create_ds(dm, ex, events):
             "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
             "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": secondary,
             "DSTERM": stop_reason, "DSDECOD": stop_reason,
-            "DSDTC": stop_dtc, "EPOCH": tx_epoch,
+            "DSSTDTC": stop_dtc, "EPOCH": tx_epoch,
         }); seq += 1
 
         # 5. End of study participation (all subjects)
@@ -703,10 +736,70 @@ def create_ds(dm, ex, events):
             "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
             "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": "STUDY PARTICIPATION",
             "DSTERM": final_reason, "DSDECOD": final_reason,
-            "DSDTC": final_dtc, "EPOCH": "FOLLOW-UP",
+            "DSSTDTC": final_dtc, "EPOCH": "FOLLOW-UP",
         })
 
-    return pd.DataFrame(ds)
+    df = pd.DataFrame(ds)
+    _rfstdtc_ds = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
+    df["DSSTDY"] = df.apply(
+        lambda r: _study_day(r["DSSTDTC"], _rfstdtc_ds[r["USUBJID"]]) if r["DSSTDTC"] else "",
+        axis=1,
+    )
+    return df[[
+        "STUDYID", "DOMAIN", "USUBJID", "DSSEQ", "DSCAT", "DSSCAT",
+        "DSTERM", "DSDECOD", "DSSTDTC", "DSSTDY", "EPOCH",
+    ]]
+
+
+# ── FA ────────────────────────────────────────────────────────────────────────
+
+def create_fa(ds):
+    """
+    FA domain: Findings About — satisfies CG0603, which requires that for every
+    DS record with a non-null DSDECOD there is a corresponding FA record where
+    FAOBJ = DSDECOD.
+    """
+    fa_rows = []
+    seq = 1
+    for _, row in ds[ds["DSDECOD"].notna() & (ds["DSDECOD"] != "")].iterrows():
+        fa_rows.append({
+            "STUDYID":  STUDYID,
+            "DOMAIN":   "FA",
+            "USUBJID":  row["USUBJID"],
+            "FASEQ":    seq,
+            "FATESTCD": "OCCUR",
+            "FATEST":   "Occurrence Indicator",
+            "FAOBJ":    row["DSDECOD"],
+            "FAORRES":  "Y",
+            "FASTRESC": "Y",
+            "EPOCH":    row["EPOCH"],
+            "FADTC":    row["DSSTDTC"],
+        })
+        seq += 1
+    return pd.DataFrame(fa_rows)
+
+
+# ── RELREC ───────────────────────────────────────────────────────────────────
+
+def create_relrec(fa, ds):
+    """
+    RELREC domain: Related Records — for each FA record, creates a row linking
+    it to its parent DS record (FAOBJ = DSDECOD), satisfying CG0603 (CORE-000767).
+    """
+    ds_idx = ds.groupby(["USUBJID", "DSDECOD"])["DSSEQ"].apply(list).to_dict()
+    rows = []
+    for _, fa_row in fa.iterrows():
+        for dsseq in ds_idx.get((fa_row["USUBJID"], fa_row["FAOBJ"]), []):
+            rows.append({
+                "STUDYID":  STUDYID,
+                "RDOMAIN":  "DS",
+                "USUBJID":  fa_row["USUBJID"],
+                "IDVAR":    "FASEQ",
+                "IDVARVAL": str(int(fa_row["FASEQ"])),
+                "RELTYPE":  "",
+                "RELID":    str(int(dsseq)),
+            })
+    return pd.DataFrame(rows)
 
 
 # ── ADSL ─────────────────────────────────────────────────────────────────────
@@ -793,22 +886,24 @@ def create_tv():
     Assessment visits are assigned to INDUCTION or CONTINUATION epoch based on
     the 12-cycle (336-day) boundary.
     """
+    # Tuples: (VISITNUM, VISIT, VISITDY, TVSTRL, TVENRL, EPOCH)
+    # END OF TREATMENT is excluded — it has no defined planned study day and
+    # TVSTRL would be null, violating CORE-000356 (required variable null).
     visits = [
-        (1, "SCREENING",  -14, 0,  "SCREENING"),
-        (2, "BASELINE",     1, 1,  "INDUCTION"),
+        (1, "SCREENING",  -14, -14, 0,   "SCREENING"),
+        (2, "BASELINE",     1,   1, 1,   "INDUCTION"),
     ]
     for v, day in enumerate(range(85, 1500, 84), start=1):
         epoch = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
-        visits.append((v + 2, f"WEEK {v * 12}", day, day, epoch))
-    visits.append((len(visits) + 1, "END OF TREATMENT", "", "", "FOLLOW-UP"))
+        visits.append((v + 2, f"WEEK {v * 12}", day, day, day, epoch))
 
     return pd.DataFrame([
         {
             "STUDYID": STUDYID, "DOMAIN": "TV",
-            "VISITNUM": vn, "VISIT": v,
-            "TVSTRL": s, "TVENRL": e, "EPOCH": ep,
+            "VISITNUM": vn, "VISIT": v, "VISITDY": vd,
+            "ARMCD": "", "TVSTRL": s, "TVENRL": e, "EPOCH": ep,
         }
-        for vn, v, s, e, ep in visits
+        for vn, v, vd, s, e, ep in visits
     ])
 
 
@@ -837,15 +932,18 @@ def create_ta():
             (3, continuation_el,   "",               "If PD or unacceptable toxicity, go to Follow-Up", "CONTINUATION"),
             (4, "Follow-Up",       "",               "",                                                "FOLLOW-UP"),
         ]
-        for taetord, element, branch, trans, epoch in epochs:
+        _etcd_map = {"SCREENING": "SCRN", "INDUCTION": "IND",
+                     "CONTINUATION": "CONT", "FOLLOW-UP": "FLWP"}
+        for taetord, element, tabranch, tatrans, epoch in epochs:
             rows.append({
-                "STUDYID": STUDYID, "DOMAIN": "TA",
-                "ARMCD": armcd, "ARM": arm,
-                "TAETORD": taetord,
-                "ELEMENT": element,
-                "BRANCH":  branch,
-                "TRANS":   trans,
-                "EPOCH":   epoch,
+                "STUDYID":  STUDYID, "DOMAIN": "TA",
+                "ARMCD":    armcd,   "ARM": arm,
+                "TAETORD":  taetord,
+                "ETCD":     _etcd_map[epoch],
+                "ELEMENT":  element,
+                "TABRANCH": tabranch,
+                "TATRANS":  tatrans,
+                "EPOCH":    epoch,
             })
     return pd.DataFrame(rows)
 
@@ -867,6 +965,8 @@ if __name__ == "__main__":
     tu      = create_tu(dm, tr)                # tumor identification; needs TR baselines
     dm      = finalize_dm(dm, ex, events)
     ds      = create_ds(dm, ex, events)
+    fa      = create_fa(ds)                    # findings about DS disposition events
+    relrec  = create_relrec(fa, ds)            # links FA records to parent DS records (CG0603)
     adsl    = create_adsl(dm, ex, rs, events)
     adtte   = create_adtte(adsl)
     tv      = create_tv()
@@ -874,7 +974,7 @@ if __name__ == "__main__":
 
     for name, df in [
         ("DM", dm), ("EX", ex), ("TU", tu), ("TR", tr), ("RS", rs), ("DS", ds),
-        ("ADSL", adsl), ("ADTTE", adtte), ("TV", tv), ("TA", ta),
+        ("FA", fa), ("RELREC", relrec), ("ADSL", adsl), ("ADTTE", adtte), ("TV", tv), ("TA", ta),
     ]:
         # Exclude internal helper column TRT01A from SDTM DM output
         out_df = df.drop(columns=["TRT01A"], errors="ignore") if name == "DM" else df
