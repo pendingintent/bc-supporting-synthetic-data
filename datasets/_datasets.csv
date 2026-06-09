@@ -2,6 +2,8 @@ Filename,Label
 DM.csv,Demographics
 DS.csv,Disposition
 EX.csv,Exposure
+FA.csv,Findings About
+RELREC.csv,Related Records
 RS.csv,Disease Response
 TA.csv,Trial Arms
 TR.csv,Tumor Results
