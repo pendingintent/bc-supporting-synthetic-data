@@ -40,7 +40,7 @@
 ✓ PASS — EX: Fulvestrant C1D1 and C1D15 doses = 250 mg (0 records with wrong loading dose)
 ✓ PASS — EX: PLACEBO EXDOSE = 0 (CG0102) (0 records with non-zero placebo dose)
 ✓ PASS — TR: TRTESTCD ∈ {LDIAM, SUMDIAM}
-✓ PASS — TR: TRSTRESU = mm
+✓ PASS — TR: TRSTRESU = mm for evaluable records (CORE-000133: blank when TRSTAT=NOT DONE) (0 bad rows)
 ✓ PASS — TR: LOBXFL ∈ {Y, ''}
 ✓ PASS — TR: TRLNKID present (not TRLINKID)
 ✓ PASS — TR: EPOCH ∈ {INDUCTION, CONTINUATION} (FB2201)

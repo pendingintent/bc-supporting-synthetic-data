@@ -343,7 +343,7 @@ def _tr_record(studyid, usubjid, seq, testcd, test, grpid, lnkid,
         "TRTESTCD": testcd,  "TRTEST": test,
         "TRGRPID":  grpid,   "TRLNKID": lnkid,
         "TRORRES":  _resn_str, "TRSTRESC": _resn_str,
-        "TRSTRESN": trstresn, "TRSTRESU": "mm",
+        "TRSTRESN": trstresn, "TRSTRESU": "mm" if trstresn != "" else "",
         "TRSTAT":   trstat,   "TRREASND": trreasnd,
         "TRMETHOD": "CT SCAN", "TREVAL": "INVESTIGATOR",
         "TRDTC": trdtc, "VISITNUM": visitnum, "VISIT": visit,
@@ -391,14 +391,14 @@ def create_tr(ex, events, dm):
         baseline_date  = row["EXSTDTC"]
         bl_dtc         = baseline_date.strftime("%Y-%m-%d")
 
-        # Baseline LDIAM records
+        # Baseline LDIAM records — TRLOBXFL="" (only SUMDIAM carries the Y flag)
         for li in range(n_lesions):
             tr.append(_tr_record(
                 STUDYID, uid, seq,
                 "LDIAM", "Longest Diameter",
                 f"TARGET LESION {li + 1}", f"TL{li + 1}",
                 round(float(baseline_sizes[li]), 2),
-                bl_dtc, 2, "BASELINE", 1, "Y", "INDUCTION",
+                bl_dtc, 2, "BASELINE", 1, "", "INDUCTION",
             )); seq += 1
 
         # Baseline SUMDIAM aggregate
@@ -465,7 +465,13 @@ def create_tr(ex, events, dm):
                 sumd, dtc, visitnum, visit, trdy, "", epoch,
             )); seq += 1
 
-    return pd.DataFrame(tr)
+    df = pd.DataFrame(tr)
+    return df[[
+        "STUDYID", "DOMAIN", "USUBJID", "TRSEQ", "TRGRPID", "TRLNKID",
+        "TRTESTCD", "TRTEST", "TRORRES", "TRSTRESC", "TRSTRESN", "TRSTRESU",
+        "TRSTAT", "TRREASND", "TRMETHOD", "TREVAL",
+        "TRDTC", "VISITNUM", "VISIT", "TRDY", "TRLOBXFL", "EPOCH",
+    ]]
 
 
 # ── RS ───────────────────────────────────────────────────────────────────────
@@ -546,8 +552,8 @@ def derive_rs(tr):
     df["RSORRES"] = df["RSSTRESC"]
     return df[[
         "STUDYID", "DOMAIN", "USUBJID", "RSSEQ", "RSTESTCD", "RSTEST",
-        "RSCAT", "RSORRES", "RSSTRESC",
-        "RSDTC", "VISITNUM", "VISIT", "RSDY", "EPOCH", "RSDRVFL",
+        "RSCAT", "RSORRES", "RSSTRESC", "RSDRVFL",
+        "RSDTC", "VISITNUM", "VISIT", "RSDY", "EPOCH",
     ]]
 
 
@@ -579,8 +585,8 @@ def create_tu(dm, tr):
     All records at VISITNUM=1 (SCREENING), dated to RFSTDTC.
     """
     rfstdtc_map = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
-    # Lesion baselines from TR (LDIAM + LOBXFL=Y, excludes SUMDIAM)
-    ldiam_bl = tr[(tr["TRTESTCD"] == "LDIAM") & (tr["TRLOBXFL"] == "Y")]
+    # Lesion baselines from TR (LDIAM at BASELINE visit, excludes SUMDIAM)
+    ldiam_bl = tr[(tr["TRTESTCD"] == "LDIAM") & (tr["VISIT"] == "BASELINE")]
 
     tu  = []
     seq = 1
@@ -620,11 +626,10 @@ def create_tu(dm, tr):
             }); seq += 1
 
     df = pd.DataFrame(tu)
-    df["TULOBXFL"] = "Y"
     return df[[
         "STUDYID", "DOMAIN", "USUBJID", "TUSEQ", "TUTESTCD", "TUTEST",
         "TULNKID", "TUORRES", "TUSTRESC", "TULOC", "TULAT",
-        "TUMETHOD", "TUEVAL", "TULOBXFL",
+        "TUMETHOD", "TUEVAL",
         "EPOCH", "VISITNUM", "VISIT", "TUDTC", "TUDY",
     ]]
 
@@ -747,7 +752,7 @@ def create_ds(dm, ex, events):
     )
     return df[[
         "STUDYID", "DOMAIN", "USUBJID", "DSSEQ", "DSCAT", "DSSCAT",
-        "DSTERM", "DSDECOD", "DSSTDTC", "DSSTDY", "EPOCH",
+        "DSTERM", "DSDECOD", "EPOCH", "DSSTDTC", "DSSTDY",
     ]]
 
 
@@ -783,22 +788,29 @@ def create_fa(ds):
 
 def create_relrec(fa, ds):
     """
-    RELREC domain: Related Records — for each FA record, creates a row linking
-    it to its parent DS record (FAOBJ = DSDECOD), satisfying CG0603 (CORE-000767).
+    RELREC domain: Related Records — links each FA record to its parent DS record
+    via paired rows sharing a common RELID, satisfying CG0603 (CORE-000767).
+    Each relationship emits two rows: one for the FA record and one for the DS record.
     """
     ds_idx = ds.groupby(["USUBJID", "DSDECOD"])["DSSEQ"].apply(list).to_dict()
     rows = []
+    rel_id = 1
     for _, fa_row in fa.iterrows():
         for dsseq in ds_idx.get((fa_row["USUBJID"], fa_row["FAOBJ"]), []):
+            rel_str = str(rel_id)
             rows.append({
-                "STUDYID":  STUDYID,
-                "RDOMAIN":  "DS",
+                "STUDYID":  STUDYID, "RDOMAIN": "FA",
                 "USUBJID":  fa_row["USUBJID"],
-                "IDVAR":    "FASEQ",
-                "IDVARVAL": str(int(fa_row["FASEQ"])),
-                "RELTYPE":  "",
-                "RELID":    str(int(dsseq)),
+                "IDVAR":    "FASEQ", "IDVARVAL": str(int(fa_row["FASEQ"])),
+                "RELTYPE":  "", "RELID": rel_str,
             })
+            rows.append({
+                "STUDYID":  STUDYID, "RDOMAIN": "DS",
+                "USUBJID":  fa_row["USUBJID"],
+                "IDVAR":    "DSSEQ", "IDVARVAL": str(int(dsseq)),
+                "RELTYPE":  "", "RELID": rel_str,
+            })
+            rel_id += 1
     return pd.DataFrame(rows)
 
 
@@ -901,7 +913,7 @@ def create_tv():
         {
             "STUDYID": STUDYID, "DOMAIN": "TV",
             "VISITNUM": vn, "VISIT": v, "VISITDY": vd,
-            "ARMCD": "", "TVSTRL": s, "TVENRL": e, "EPOCH": ep,
+            "ARMCD": "", "ARM": "", "TVSTRL": s, "TVENRL": e, "EPOCH": ep,
         }
         for vn, v, vd, s, e, ep in visits
     ])
@@ -920,26 +932,26 @@ def create_ta():
     TRANS captures the conditional branch to FOLLOW-UP on PD or unacceptable toxicity.
     """
     rows = []
-    for armcd, arm, induction_el, continuation_el in [
+    for armcd, arm, ind_etcd, ind_el, cont_etcd, cont_el in [
         ("TRT", "Fulvestrant + Everolimus",
-         "Fulvestrant + Everolimus",   "Fulvestrant + Everolimus"),
+         "INDA",  "Fulvestrant + Everolimus",
+         "CONTA", "Fulvestrant + Everolimus"),
         ("PLC", "Fulvestrant + Placebo",
-         "Fulvestrant + Placebo",      "Fulvestrant"),
+         "INDB",  "Fulvestrant + Placebo",
+         "CONTB", "Fulvestrant"),
     ]:
         epochs = [
-            (1, "Screen",          "",               "Subject randomised",                              "SCREENING"),
-            (2, induction_el,      "",               "If PD or unacceptable toxicity, go to Follow-Up", "INDUCTION"),
-            (3, continuation_el,   "",               "If PD or unacceptable toxicity, go to Follow-Up", "CONTINUATION"),
-            (4, "Follow-Up",       "",               "",                                                "FOLLOW-UP"),
+            (1, "SCRN",     "Screen",    "",  "Subject randomised",                              "SCREENING"),
+            (2, ind_etcd,   ind_el,      "",  "If PD or unacceptable toxicity, go to Follow-Up", "INDUCTION"),
+            (3, cont_etcd,  cont_el,     "",  "If PD or unacceptable toxicity, go to Follow-Up", "CONTINUATION"),
+            (4, "FLWP",     "Follow-Up", "",  "",                                                "FOLLOW-UP"),
         ]
-        _etcd_map = {"SCREENING": "SCRN", "INDUCTION": "IND",
-                     "CONTINUATION": "CONT", "FOLLOW-UP": "FLWP"}
-        for taetord, element, tabranch, tatrans, epoch in epochs:
+        for taetord, etcd, element, tabranch, tatrans, epoch in epochs:
             rows.append({
                 "STUDYID":  STUDYID, "DOMAIN": "TA",
                 "ARMCD":    armcd,   "ARM": arm,
                 "TAETORD":  taetord,
-                "ETCD":     _etcd_map[epoch],
+                "ETCD":     etcd,
                 "ELEMENT":  element,
                 "TABRANCH": tabranch,
                 "TATRANS":  tatrans,
