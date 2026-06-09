@@ -5,42 +5,33 @@ from datetime import datetime, timedelta
 
 STUDYID = "SYNTH-ONC-001"
 
+# Boundary between INDUCTION (blinded) and CONTINUATION (open) epochs: 12 x 28 days
+_INDUCTION_DAYS = 12 * 28  # 336 days
+
 # Progression parameters empirically calibrated (n=50k simulation) to match
 # FHIR-published KM medians with U(60,600) censoring:
 #   Treatment target: 10.3 months (314 days)  → p=0.85, exp scale=350 days
 #   Placebo   target:  5.1 months (155 days)  → p=0.90, exp scale=195 days
 _PROG = {
     "Treatment": {"prob": 0.85, "scale": 350},
-    "Placebo": {"prob": 0.90, "scale": 195},
+    "Placebo":   {"prob": 0.90, "scale": 195},
 }
 
-# Tumour dynamics: responder/non-responder model calibrated (n=30k simulation) to match
-# FHIR-published ORR values (Trt 18.2% CI 9.8-29.6%, Pbo 12.3% CI 5.5-22.8%):
-#   Responders:     strong shrinkage (-12 mm/visit) → reliable PR within 2-3 assessments
-#   Non-responders: slow growth      (+2  mm/visit) → no PR expected
-#   Noise σ=8mm both types. Responder fractions: Trt=0.22, Pbo=0.14
+# Tumour dynamics: responder/non-responder model calibrated to match FHIR-published ORR
+# (Trt 18.2%, Pbo 12.3%).  Responders: −12 mm/visit drift; non-responders: +2 mm/visit.
 _TUMOUR = {
-    "Treatment": {
-        "resp_frac": 0.21,
-        "drift_resp": -12.0,
-        "drift_nonresp": +2.0,
-        "noise": 8.0,
-    },
-    "Placebo": {
-        "resp_frac": 0.20,
-        "drift_resp": -12.0,
-        "drift_nonresp": +2.0,
-        "noise": 8.0,
-    },
+    "Treatment": {"resp_frac": 0.21, "drift_resp": -12.0, "drift_nonresp": +2.0, "noise": 8.0},
+    "Placebo":   {"resp_frac": 0.20, "drift_resp": -12.0, "drift_nonresp": +2.0, "noise": 8.0},
 }
 
 _ENROLL_START = datetime(2021, 1, 1)
-_STUDY_END = datetime(2026, 12, 31)
+_STUDY_END    = datetime(2026, 12, 31)
+_MIN_LESION_MM = 5.0   # RECIST 1.1: "too small to measure" → 5 mm floor
 
 
 def _fmt(d):
     """Format a date-like value as ISO-8601 string, or empty string if missing."""
-    if d is None or (hasattr(d, "__class__") and d.__class__.__name__ in ("NaTType",)):
+    if d is None or (hasattr(d, "__class__") and d.__class__.__name__ == "NaTType"):
         return ""
     try:
         return pd.Timestamp(d).strftime("%Y-%m-%d")
@@ -48,359 +39,590 @@ def _fmt(d):
         return str(d)[:10]
 
 
-# ---------------- DM ----------------
+def _study_day(event_date, rfstdtc):
+    """CDISC study day: day 1 = RFSTDTC, no day 0 (days before baseline are negative)."""
+    delta = (pd.Timestamp(str(event_date)[:10]) - pd.Timestamp(str(rfstdtc)[:10])).days
+    return delta + 1 if delta >= 0 else delta
+
+
+# ── DM ───────────────────────────────────────────────────────────────────────
+
 def create_dm(n=200):
-    # Balanced 1:1 randomisation via permutation, matching trial design
+    # Balanced 1:1 randomisation via permutation
     arms = np.random.permutation(["Treatment"] * (n // 2) + ["Placebo"] * (n // 2))
 
     # Spread enrollment over a 24-month window (2021-01-01 to 2022-12-31)
     enroll_offsets = np.random.randint(0, 730, size=n)
-    rfstdtc = [
-        (_ENROLL_START + timedelta(days=int(d))).strftime("%Y-%m-%d")
-        for d in enroll_offsets
+    rfstdtc_dates = [_ENROLL_START + timedelta(days=int(d)) for d in enroll_offsets]
+
+    # RFICDTC: informed consent 7–28 days before first study activity (RFSTDTC)
+    ic_offsets = np.random.randint(7, 29, size=n)
+    rficdtc = [
+        (d - timedelta(days=int(ic))).strftime("%Y-%m-%d")
+        for d, ic in zip(rfstdtc_dates, ic_offsets)
     ]
+    rfstdtc = [d.strftime("%Y-%m-%d") for d in rfstdtc_dates]
 
-    dm = pd.DataFrame(
-        {
-            "SUBJID": [f"{i:04d}" for i in range(1, n + 1)],
-            "DMSEQ": range(1, n + 1),
-            "AGE": np.clip(np.random.normal(55, 10, n), 20, 80).astype(int),
-            "SEX": "F",
-            "RFSTDTC": rfstdtc,
-            # TRT01A kept as internal helper for derive_events / create_tr;
-            # not included in the final SDTM DM column list
-            "TRT01A": arms,
-            "ARMCD": ["TRT" if a == "Treatment" else "PLC" for a in arms],
-            "ARM": [
-                (
-                    "Fulvestrant + Everolimus"
-                    if a == "Treatment"
-                    else "Fulvestrant + Placebo"
-                )
-                for a in arms
-            ],
-        }
-    )
-    dm["STUDYID"] = STUDYID
-    dm["DOMAIN"] = "DM"
-    dm["USUBJID"] = STUDYID + "-" + dm["SUBJID"]
+    dm = pd.DataFrame({
+        "SUBJID":  [f"{i:04d}" for i in range(1, n + 1)],
+        "DMSEQ":   range(1, n + 1),
+        "AGE":     np.clip(np.random.normal(55, 10, n), 20, 80).astype(int),
+        "AGEU":    "YEARS",
+        "SEX":     "F",
+        "RFICDTC": rficdtc,
+        "RFSTDTC": rfstdtc,
+        "TRT01A":  arms,  # internal helper; excluded from CSV DM output
+        "ARMCD":   ["TRT" if a == "Treatment" else "PLC" for a in arms],
+        "ARM": [
+            "Fulvestrant + Everolimus" if a == "Treatment" else "Fulvestrant + Placebo"
+            for a in arms
+        ],
+    })
+    dm["STUDYID"]  = STUDYID
+    dm["DOMAIN"]   = "DM"
+    dm["USUBJID"]  = STUDYID + "-" + dm["SUBJID"]
     dm["ACTARMCD"] = dm["ARMCD"]
-    dm["ACTARM"] = dm["ARM"]
-
-    # DTHFL / DTHDTC and RFXSTDTC / RFXENDTC added later by finalize_dm
+    dm["ACTARM"]   = dm["ARM"]
     return dm
 
 
 def finalize_dm(dm, ex, events):
-    """Add DTHFL/DTHDTC (from events) and RFXSTDTC/RFXENDTC (from EX) to DM."""
-    # Subject-level first/last exposure dates
+    """
+    Add RFXSTDTC / RFXENDTC (from EX), DTHFL / DTHDTC (from events),
+    and RFPENDTC (end of study participation, from events.FOLLOWUP_END).
+
+    DTHDTC is constrained to be after RFXENDTC: a subject cannot die
+    while still receiving treatment.
+    """
     rfx = (
         ex.groupby("USUBJID")
-        .agg(
-            RFXSTDTC=("EXSTDTC", "min"),
-            RFXENDTC=("EXENDTC", "max"),
-        )
+        .agg(RFXSTDTC=("EXSTDTC", "min"), RFXENDTC=("EXENDTC", "max"))
         .reset_index()
     )
-
-    death_info = events[["USUBJID", "DIED", "DTHDT"]].copy()
-
     dm = dm.merge(rfx, on="USUBJID", how="left")
-    dm = dm.merge(death_info, on="USUBJID", how="left")
+    dm = dm.merge(
+        events[["USUBJID", "DIED", "DTHDT", "FOLLOWUP_END"]], on="USUBJID", how="left"
+    )
 
     dm["DTHFL"] = dm["DIED"].map({True: "Y", False: "N"}).fillna("N")
-    dm["DTHDTC"] = dm["DTHDT"].apply(_fmt)
-    dm = dm.drop(columns=["DIED", "DTHDT"])
 
-    return dm[
-        [
-            "STUDYID",
-            "DOMAIN",
-            "USUBJID",
-            "SUBJID",
-            "DMSEQ",
-            "AGE",
-            "SEX",
-            "RFSTDTC",
-            "RFXSTDTC",
-            "RFXENDTC",
-            "ARMCD",
-            "ARM",
-            "ACTARMCD",
-            "ACTARM",
-            "DTHFL",
-            "DTHDTC",
-            # TRT01A retained as internal helper column (not SDTM) for create_tr
-            "TRT01A",
-        ]
-    ]
+    def _safe_dthdtc(row):
+        if row["DIED"] and pd.notna(row["DTHDT"]):
+            rfxend = pd.Timestamp(str(row["RFXENDTC"])[:10])
+            dthdtc = pd.Timestamp(row["DTHDT"])
+            # Death must occur after end of treatment
+            if dthdtc <= rfxend:
+                dthdtc = rfxend + timedelta(days=max(1, int(np.random.exponential(30))))
+                dthdtc = min(dthdtc, _STUDY_END)
+            return dthdtc.strftime("%Y-%m-%d")
+        return ""
+
+    dm["DTHDTC"]   = dm.apply(_safe_dthdtc, axis=1)
+    dm["RFPENDTC"] = dm.apply(
+        lambda r: r["DTHDTC"] if (r["DTHFL"] == "Y" and r["DTHDTC"])
+        else _fmt(r["FOLLOWUP_END"]),
+        axis=1,
+    )
+    # CG0142: RFENDTC required for all treated subjects; equals RFPENDTC in this study
+    dm["RFENDTC"] = dm["RFPENDTC"]
+    dm = dm.drop(columns=["DIED", "DTHDT", "FOLLOWUP_END"])
+
+    return dm[[
+        "STUDYID", "DOMAIN", "USUBJID", "SUBJID", "DMSEQ",
+        "AGE", "AGEU", "SEX", "RFICDTC", "RFSTDTC", "RFXSTDTC", "RFXENDTC", "RFPENDTC",
+        "RFENDTC", "ARMCD", "ARM", "ACTARMCD", "ACTARM",
+        "DTHFL", "DTHDTC",
+        "TRT01A",   # internal helper — stripped from CSV output in __main__
+    ]]
 
 
-# ---------------- EX ----------------
+# ── EX ───────────────────────────────────────────────────────────────────────
+
 def create_ex(dm):
     """
     Two drug records per subject:
-      FULVESTRANT  500 mg IM — one record per injection (C1D1, C1D15, then Q28D)
-      EVEROLIMUS / PLACEBO 10 mg oral — one record spanning the full treatment period
+      FULVESTRANT IM: 250 mg on C1D1 and C1D15 (loading doses), then 500 mg Q28D
+      EVEROLIMUS 10 mg oral (TRT) or PLACEBO 10 mg oral (PLC): one spanning record
+
+    EXSTDY / EXENDY are populated relative to RFSTDTC (= RFXSTDTC in this trial).
     """
+    rfstdtc_map = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
     records = []
 
     for _, row in dm.iterrows():
         usubjid = row["USUBJID"]
-        arm = row["TRT01A"]
-        start = datetime.strptime(str(row["RFSTDTC"])[:10], "%Y-%m-%d")
-        dur = int(np.random.uniform(60, 600))
-        end = start + timedelta(days=dur)
+        arm     = row["TRT01A"]
+        rfstdtc = datetime.strptime(rfstdtc_map[usubjid], "%Y-%m-%d")
+        start   = rfstdtc           # RFXSTDTC = RFSTDTC for this trial
+        dur     = int(np.random.uniform(60, 600))
+        end     = start + timedelta(days=dur)
 
         # Fulvestrant injection schedule
-        inj_offsets = [0, 14]  # C1D1, C1D15
-        cycle_day = 28  # C2D1, then +28 per cycle
+        # C1D1 and C1D15: 250 mg each (loading doses); subsequent cycles: 500 mg Q28D
+        inj_schedule = [(0, 250), (14, 250)]
+        cycle_day = 28
         while start + timedelta(days=cycle_day) <= end:
-            inj_offsets.append(cycle_day)
+            inj_schedule.append((cycle_day, 500))
             cycle_day += 28
 
         seq = 1
-        for offset in inj_offsets:
+        for offset, dose in inj_schedule:
             inj_date = start + timedelta(days=offset)
-            records.append(
-                {
-                    "STUDYID": STUDYID,
-                    "DOMAIN": "EX",
-                    "USUBJID": usubjid,
-                    "EXSEQ": seq,
-                    "EXTRT": "FULVESTRANT",
-                    "EXDOSE": 500,
-                    "EXDOSU": "mg",
-                    "EXROUTE": "INTRAMUSCULAR",
-                    "EXFREQ": "ONCE",
-                    "EXSTDTC": inj_date.strftime("%Y-%m-%d"),
-                    "EXENDTC": inj_date.strftime("%Y-%m-%d"),
-                }
-            )
+            stdy = _study_day(inj_date, rfstdtc)
+            records.append({
+                "STUDYID": STUDYID, "DOMAIN": "EX", "USUBJID": usubjid,
+                "EXSEQ": seq, "EXTRT": "FULVESTRANT",
+                "EXDOSE": dose, "EXDOSU": "mg",
+                "EXROUTE": "INTRAMUSCULAR", "EXFREQ": "ONCE",
+                "EXSTDTC": inj_date.strftime("%Y-%m-%d"),
+                "EXENDTC": inj_date.strftime("%Y-%m-%d"),
+                "EXSTDY": stdy, "EXENDY": stdy,
+            })
             seq += 1
 
-        # Everolimus (treatment arm) or Placebo (control arm)
+        # Everolimus (TRT) or Placebo (PLC): one continuous record spanning the period
+        # Per CG0102: EXTRT=PLACEBO must have EXDOSE=0
         second_drug = "EVEROLIMUS" if arm == "Treatment" else "PLACEBO"
-        records.append(
-            {
-                "STUDYID": STUDYID,
-                "DOMAIN": "EX",
-                "USUBJID": usubjid,
-                "EXSEQ": seq,
-                "EXTRT": second_drug,
-                "EXDOSE": 10,
-                "EXDOSU": "mg",
-                "EXROUTE": "ORAL",
-                "EXFREQ": "QD",
-                "EXSTDTC": start.strftime("%Y-%m-%d"),
-                "EXENDTC": end.strftime("%Y-%m-%d"),
-            }
-        )
+        second_dose = 10 if arm == "Treatment" else 0
+        records.append({
+            "STUDYID": STUDYID, "DOMAIN": "EX", "USUBJID": usubjid,
+            "EXSEQ": seq, "EXTRT": second_drug,
+            "EXDOSE": second_dose, "EXDOSU": "mg",
+            "EXROUTE": "ORAL", "EXFREQ": "QD",
+            "EXSTDTC": start.strftime("%Y-%m-%d"),
+            "EXENDTC": end.strftime("%Y-%m-%d"),
+            "EXSTDY": _study_day(start, rfstdtc),
+            "EXENDY": _study_day(end,   rfstdtc),
+        })
 
     return pd.DataFrame(records)
 
 
-# ---------------- EVENTS (internal) ----------------
+def finalize_ex(ex, events, dm):
+    """
+    Remove EX records that start after a subject's progression date, and cap
+    EXENDTC (and EXENDY) at that date.  This ensures RFXENDTC derived from EX
+    correctly reflects when treatment actually stopped for progressors.
+    """
+    rfstdtc_map = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
+    prog_map = (
+        events.dropna(subset=["PROGDT"])
+        .set_index("USUBJID")["PROGDT"]
+        .apply(lambda x: pd.Timestamp(x))
+        .to_dict()
+    )
+
+    ex = ex.copy()
+    ex["_stdt"] = pd.to_datetime(ex["EXSTDTC"])
+    ex["_endt"] = pd.to_datetime(ex["EXENDTC"])
+
+    keep = []
+    for _, row in ex.iterrows():
+        uid = row["USUBJID"]
+        if uid in prog_map:
+            prog = prog_map[uid]
+            if row["_stdt"] > prog:
+                continue  # drop records that begin after progression
+            if row["_endt"] > prog:
+                row = row.copy()
+                row["EXENDTC"] = prog.strftime("%Y-%m-%d")
+                row["_endt"]   = prog
+                row["EXENDY"]  = _study_day(prog, rfstdtc_map[uid])
+        keep.append(row)
+
+    return (
+        pd.DataFrame(keep)
+        .drop(columns=["_stdt", "_endt"])
+        .reset_index(drop=True)
+    )
+
+
+# ── EVENTS (internal) ────────────────────────────────────────────────────────
+
 def derive_events(ex, dm):
     """
-    One row per subject: PROGDT (datetime | None), WITHDRAWAL (bool),
-    RESPONDER (bool), DIED (bool), DTHDT (datetime | None).
+    One row per subject with columns:
+      PROGDT, RESPONDER, WITHDRAWAL, DIED, DTHDT, FOLLOWUP_END.
+
+    FOLLOWUP_END is the end of study participation — it drives RFPENDTC in DM
+    and the date of the STUDY PARTICIPATION disposition record in DS.
+    For progressors treatment ends at PROGDT, so follow-up is measured from there.
     """
     ex_start = ex.groupby("USUBJID")["EXSTDTC"].min().reset_index()
-    ex_end = ex.groupby("USUBJID")["EXENDTC"].max().reset_index()
-
-    merged = ex_start.merge(dm[["USUBJID", "TRT01A"]])
+    ex_end   = ex.groupby("USUBJID")["EXENDTC"].max().reset_index()
+    merged   = ex_start.merge(dm[["USUBJID", "TRT01A"]])
 
     records = []
     for _, row in merged.iterrows():
-        start = datetime.strptime(str(row["EXSTDTC"])[:10], "%Y-%m-%d")
-        arm = row["TRT01A"]
+        start  = datetime.strptime(str(row["EXSTDTC"])[:10], "%Y-%m-%d")
+        arm    = row["TRT01A"]
         params = _PROG[arm]
         if np.random.rand() < params["prob"]:
-            days = max(84, int(np.random.exponential(params["scale"])))
+            days   = max(84, int(np.random.exponential(params["scale"])))
             progdt = start + timedelta(days=days)
         else:
             progdt = None
         responder = np.random.rand() < _TUMOUR[arm]["resp_frac"]
-        records.append(
-            {"USUBJID": row["USUBJID"], "PROGDT": progdt, "RESPONDER": responder}
-        )
+        records.append({"USUBJID": row["USUBJID"], "PROGDT": progdt, "RESPONDER": responder})
 
     events = pd.DataFrame(records)
     no_prog = events["PROGDT"].isna()
     events["WITHDRAWAL"] = no_prog & (np.random.rand(len(events)) < 0.20)
 
-    # Death simulation
     events = events.merge(ex_end, on="USUBJID", how="left")
-    died_list = []
-    dthdt_list = []
-    for _, row in events.iterrows():
-        progdt = row["PROGDT"]
-        withdrawal = bool(row["WITHDRAWAL"])
-        exendtc = datetime.strptime(str(row["EXENDTC"])[:10], "%Y-%m-%d")
+    died_list, dthdt_list, followup_list = [], [], []
 
-        if pd.notna(progdt):
-            # ~75% of progressors die during follow-up
+    for _, row in events.iterrows():
+        progdt     = row["PROGDT"]
+        withdrawal = bool(row["WITHDRAWAL"])
+        exendtc    = datetime.strptime(str(row["EXENDTC"])[:10], "%Y-%m-%d")
+        # Effective treatment end: progression date for progressors, EX end for others
+        tx_end = progdt if (progdt is not None and pd.notna(progdt)) else exendtc
+
+        if progdt is not None and pd.notna(progdt):
             if np.random.rand() < 0.75:
-                days = max(1, int(np.random.exponential(180)))
-                dt = min(progdt + timedelta(days=days), _STUDY_END)
+                days   = max(1, int(np.random.exponential(180)))
+                dthdtc = min(tx_end + timedelta(days=days), _STUDY_END)
                 died_list.append(True)
-                dthdt_list.append(dt)
+                dthdt_list.append(dthdtc)
+                followup_list.append(dthdtc)
             else:
                 died_list.append(False)
                 dthdt_list.append(None)
+                fu_end = min(tx_end + timedelta(days=int(np.random.uniform(30, 180))), _STUDY_END)
+                followup_list.append(fu_end)
         elif withdrawal:
-            # ~15% of withdrawers die during follow-up
             if np.random.rand() < 0.15:
-                days = max(1, int(np.random.exponential(365)))
-                dt = min(exendtc + timedelta(days=days), _STUDY_END)
+                days   = max(1, int(np.random.exponential(365)))
+                dthdtc = min(tx_end + timedelta(days=days), _STUDY_END)
                 died_list.append(True)
-                dthdt_list.append(dt)
+                dthdt_list.append(dthdtc)
+                followup_list.append(dthdtc)
             else:
                 died_list.append(False)
                 dthdt_list.append(None)
+                followup_list.append(tx_end)  # withdrew, participation ends with treatment
         else:
             died_list.append(False)
             dthdt_list.append(None)
+            fu_end = min(tx_end + timedelta(days=int(np.random.uniform(30, 120))), _STUDY_END)
+            followup_list.append(fu_end)
 
-    events["DIED"] = died_list
-    events["DTHDT"] = dthdt_list
-    events = events.drop(columns=["EXENDTC"])
-    return events
+    events["DIED"]         = died_list
+    events["DTHDT"]        = dthdt_list
+    events["FOLLOWUP_END"] = followup_list
+    return events.drop(columns=["EXENDTC"])
 
 
-# ---------------- TR ----------------
+# ── TR ───────────────────────────────────────────────────────────────────────
+
+_NE_PROB = 0.03   # probability that any individual post-baseline assessment is not evaluable
+
+def _tr_record(studyid, usubjid, seq, testcd, test, grpid, lnkid,
+               trstresn, trdtc, visitnum, visit, trdy, lobxfl, epoch,
+               trstat="", trreasnd=""):
+    return {
+        "STUDYID": studyid, "DOMAIN": "TR",
+        "USUBJID":  usubjid, "TRSEQ": seq,
+        "TRTESTCD": testcd,  "TRTEST": test,
+        "TRGRPID":  grpid,   "TRLNKID": lnkid,
+        "TRSTRESN": trstresn, "TRSTRESU": "mm",
+        "TRSTAT":   trstat,   "TRREASND": trreasnd,
+        "TRMETHOD": "CT SCAN", "TREVAL": "INVESTIGATOR",
+        "TRDTC": trdtc, "VISITNUM": visitnum, "VISIT": visit,
+        "TRDY": trdy, "LOBXFL": lobxfl, "EPOCH": epoch,
+    }
+
+
 def create_tr(ex, events, dm):
     """
-    Adds a BASELINE record (TRDY=1, ABLFL=Y) anchored to the pre-treatment
-    tumour size, then post-baseline assessments every 12 weeks (84 days).
-    VISITNUM follows TV: BASELINE=2, WEEK 12=3, WEEK 24=4, …
+    RECIST target lesion measurements per SDTMIG and the CDISC RECIST 1.1 supplement.
 
-    Tumour dynamics use a responder/non-responder model (see _TUMOUR) so that
-    arm-level ORR approximates FHIR-published values.
+    Per subject:
+      - 1–3 target lesions (TRTESTCD=LDIAM, TRGRPID=TARGET LESION N, TRLNKID=TLN)
+      - One SUMDIAM aggregate record per visit (TRTESTCD=SUMDIAM, TRGRPID=TARGET)
+      - Baseline records carry LOBXFL=Y
+
+    Tumour dynamics:
+      - Minimum measurable lesion: 5 mm (RECIST floor for visible lesions)
+      - Absent lesion: 0 mm (complete disappearance; allowed for strong responders)
+      - ~3% of post-baseline visits are not evaluable (TRSTAT=NOT DONE)
     """
-    tr = []
+    tr  = []
     seq = 1
 
-    # One treatment-start row per subject
     ex_starts = ex.groupby("USUBJID")["EXSTDTC"].min().reset_index()
     ex_starts["EXSTDTC"] = pd.to_datetime(ex_starts["EXSTDTC"])
-    merged = ex_starts.merge(events[["USUBJID", "PROGDT", "RESPONDER"]])
-    merged = merged.merge(dm[["USUBJID", "TRT01A"]])
+    ex_end_map = pd.to_datetime(ex.groupby("USUBJID")["EXENDTC"].max()).to_dict()
+    merged = (
+        ex_starts
+        .merge(events[["USUBJID", "PROGDT", "RESPONDER"]])
+        .merge(dm[["USUBJID", "TRT01A"]])
+    )
 
     for _, row in merged.iterrows():
-        arm = row["TRT01A"]
-        tp = _TUMOUR[arm]
+        uid   = row["USUBJID"]
+        arm   = row["TRT01A"]
+        tp    = _TUMOUR[arm]
         drift = tp["drift_resp"] if row["RESPONDER"] else tp["drift_nonresp"]
         noise = tp["noise"]
 
-        base = np.random.normal(50, 10)
-        tumor = base
+        n_lesions     = int(np.random.choice([1, 2, 3], p=[0.3, 0.5, 0.2]))
+        baseline_sizes = np.maximum(np.random.normal(25, 8, n_lesions), _MIN_LESION_MM)
+        current_sizes  = baseline_sizes.copy()
+        baseline_date  = row["EXSTDTC"]
+        bl_dtc         = baseline_date.strftime("%Y-%m-%d")
 
-        # Baseline record
-        baseline_date = row["EXSTDTC"] + timedelta(days=1)
-        tr.append(
-            {
-                "STUDYID": STUDYID,
-                "DOMAIN": "TR",
-                "USUBJID": row["USUBJID"],
-                "TRSEQ": seq,
-                "TRTESTCD": "DIAM",
-                "TRTEST": "Diameter",
-                "TRSTRESN": round(base, 2),
-                "TRSTRESU": "mm",
-                "TRDTC": baseline_date.strftime("%Y-%m-%d"),
-                "VISITNUM": 2,
-                "VISIT": "BASELINE",
-                "TRDY": 1,
-                "ABLFL": "Y",
-            }
-        )
-        seq += 1
+        # Baseline LDIAM records
+        for li in range(n_lesions):
+            tr.append(_tr_record(
+                STUDYID, uid, seq,
+                "LDIAM", "Longest Diameter",
+                f"TARGET LESION {li + 1}", f"TL{li + 1}",
+                round(float(baseline_sizes[li]), 2),
+                bl_dtc, 2, "BASELINE", 1, "Y", "INDUCTION",
+            )); seq += 1
 
-        progdt = row["PROGDT"]
-        for v, day in enumerate(range(85, 800, 84), start=1):
+        # Baseline SUMDIAM aggregate
+        bl_sumd = round(float(sum(baseline_sizes)), 2)
+        tr.append(_tr_record(
+            STUDYID, uid, seq,
+            "SUMDIAM", "Sum of Diameter", "TARGET", "",
+            bl_sumd, bl_dtc, 2, "BASELINE", 1, "Y", "INDUCTION",
+        )); seq += 1
+
+        progdt  = row["PROGDT"]
+        ex_end  = ex_end_map.get(uid)
+
+        for v, day in enumerate(range(85, 1500, 84), start=1):
             date = row["EXSTDTC"] + timedelta(days=day)
             if progdt is not None and pd.notna(progdt) and date > progdt:
                 break
-            tumor = max(1, tumor + np.random.normal(drift, noise))
-            tr.append(
-                {
-                    "STUDYID": STUDYID,
-                    "DOMAIN": "TR",
-                    "USUBJID": row["USUBJID"],
-                    "TRSEQ": seq,
-                    "TRTESTCD": "DIAM",
-                    "TRTEST": "Diameter",
-                    "TRSTRESN": round(tumor, 2),
-                    "TRSTRESU": "mm",
-                    "TRDTC": date.strftime("%Y-%m-%d"),
-                    "VISITNUM": v + 2,
-                    "VISIT": f"WEEK {v * 12}",
-                    "TRDY": day,
-                    "ABLFL": "",
-                }
-            )
-            seq += 1
+            if ex_end is not None and date > ex_end:
+                break
+
+            dtc      = date.strftime("%Y-%m-%d")
+            visitnum = v + 2
+            visit    = f"WEEK {v * 12}"
+            epoch    = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
+
+            # ~3% of visits are not evaluable (imaging quality)
+            if np.random.rand() < _NE_PROB:
+                for li in range(n_lesions):
+                    tr.append(_tr_record(
+                        STUDYID, uid, seq,
+                        "LDIAM", "Longest Diameter",
+                        f"TARGET LESION {li + 1}", f"TL{li + 1}",
+                        "", dtc, visitnum, visit, day, "", epoch,
+                        trstat="NOT DONE", trreasnd="IMAGING QUALITY ISSUES",
+                    )); seq += 1
+                tr.append(_tr_record(
+                    STUDYID, uid, seq,
+                    "SUMDIAM", "Sum of Diameter", "TARGET", "",
+                    "", dtc, visitnum, visit, day, "", epoch,
+                    trstat="NOT DONE", trreasnd="IMAGING QUALITY ISSUES",
+                )); seq += 1
+                continue
+
+            # Normal visit: update each lesion
+            for li in range(n_lesions):
+                new_size = current_sizes[li] + np.random.normal(drift, noise)
+                if row["RESPONDER"] and new_size <= _MIN_LESION_MM and np.random.rand() < 0.25:
+                    current_sizes[li] = 0.0   # lesion absent — CR possible
+                else:
+                    current_sizes[li] = max(_MIN_LESION_MM, new_size)
+                tr.append(_tr_record(
+                    STUDYID, uid, seq,
+                    "LDIAM", "Longest Diameter",
+                    f"TARGET LESION {li + 1}", f"TL{li + 1}",
+                    round(float(current_sizes[li]), 2),
+                    dtc, visitnum, visit, day, "", epoch,
+                )); seq += 1
+
+            sumd = round(float(sum(current_sizes[:n_lesions])), 2)
+            tr.append(_tr_record(
+                STUDYID, uid, seq,
+                "SUMDIAM", "Sum of Diameter", "TARGET", "",
+                sumd, dtc, visitnum, visit, day, "", epoch,
+            )); seq += 1
 
     return pd.DataFrame(tr)
 
 
-# ---------------- RS ----------------
-def derive_rs(tr):
-    """RECIST response derived as % change from the ABLFL (day-1) baseline."""
-    rs = []
-    seq = 1
-    # Build baseline map from day-1 measurements
-    base_map = tr[tr["ABLFL"] == "Y"].set_index("USUBJID")["TRSTRESN"]
+# ── RS ───────────────────────────────────────────────────────────────────────
 
-    # Only score post-baseline assessments
-    for _, row in tr[tr["ABLFL"] != "Y"].iterrows():
-        base = base_map.get(row["USUBJID"], row["TRSTRESN"])
+def derive_rs(tr):
+    """
+    RECIST overall response derived from SUMDIAM records in TR.
+
+    Response rules (RECIST 1.1):
+      CR  — SUMD = 0 (all target lesions absent)
+      PR  — SUMD ≤ −30% of baseline SUMD
+      PD  — SUMD ≥ +20% of baseline SUMD (or nadir, simplified here to baseline)
+      SD  — all other evaluable visits
+      NE  — visit not evaluable (TRSTAT = NOT DONE on the SUMDIAM record)
+
+    Stops generating RS records after the first PD — once progression is declared
+    the subject is taken off treatment and receives no further tumour assessments.
+    """
+    tr = tr.copy()
+    tr["TRSTRESN"] = pd.to_numeric(tr["TRSTRESN"], errors="coerce")
+
+    sumdiam = tr[tr["TRTESTCD"] == "SUMDIAM"].copy()
+
+    # Baseline SUMDIAM (LOBXFL=Y)
+    baseline_sumd = (
+        sumdiam[sumdiam["LOBXFL"] == "Y"]
+        .set_index("USUBJID")["TRSTRESN"]
+        .rename("BASE_SUMD")
+    )
+
+    # Post-baseline SUMDIAM rows
+    post = (
+        sumdiam[sumdiam["LOBXFL"] != "Y"]
+        .merge(baseline_sumd.reset_index(), on="USUBJID", how="left")
+    )
+
+    def _resp(row):
+        if row.get("TRSTAT", "") == "NOT DONE" or pd.isna(row["TRSTRESN"]):
+            return "NE"
+        if row["TRSTRESN"] == 0:
+            return "CR"
+        base = row["BASE_SUMD"]
+        if pd.isna(base) or base == 0:
+            return "NE"
         pct = (row["TRSTRESN"] - base) / base * 100
         if pct <= -30:
-            resp = "PR"
-        elif pct >= 20:
-            resp = "PD"
-        else:
-            resp = "SD"
-        rs.append(
-            {
-                "STUDYID": STUDYID,
-                "DOMAIN": "RS",
-                "USUBJID": row["USUBJID"],
-                "RSSEQ": seq,
-                "RSTESTCD": "OVRLRESP",
-                "RSTEST": "Overall Response",
-                "RSSTRESC": resp,
-                "RSDTC": row["TRDTC"],
+            return "PR"
+        if pct >= 20:
+            return "PD"
+        return "SD"
+
+    post["RSSTRESC"] = post.apply(_resp, axis=1)
+
+    rs  = []
+    seq = 1
+    for usubjid, grp in post.groupby("USUBJID", sort=False):
+        for _, row in grp.sort_values("TRDY").iterrows():
+            rs_epoch = "INDUCTION" if int(row["TRDY"]) <= _INDUCTION_DAYS else "CONTINUATION"
+            rs.append({
+                "STUDYID":  STUDYID, "DOMAIN": "RS",
+                "USUBJID":  usubjid,
+                "RSSEQ":    seq,
+                "RSTESTCD": "OVRLRESP", "RSTEST": "Overall Response",
+                "RSSTRESC": row["RSSTRESC"],
+                "RSDTC":    row["TRDTC"],
                 "VISITNUM": row["VISITNUM"],
-                "VISIT": row["VISIT"],
-                "RSDY": row["TRDY"],
-            }
-        )
-        seq += 1
+                "VISIT":    row["VISIT"],
+                "RSDY":     int(row["TRDY"]),
+                "EPOCH":    rs_epoch,
+                "RSDRVFL":  "Y",
+            })
+            seq += 1
+            if row["RSSTRESC"] == "PD":
+                break
 
     return pd.DataFrame(rs)
 
 
-# ---------------- DS ----------------
+# ── TU ───────────────────────────────────────────────────────────────────────
+
+# Common metastatic sites for HR+ breast cancer (weighted toward most frequent)
+_TU_SITES = [
+    "BONE", "BONE", "LIVER", "LIVER", "LUNG", "LUNG",
+    "LYMPH NODE", "BREAST", "SKIN", "PLEURA",
+]
+_TU_LAT = {
+    "BONE":        [""],
+    "LIVER":       [""],
+    "LUNG":        ["LEFT", "RIGHT", "BILATERAL"],
+    "LYMPH NODE":  ["LEFT", "RIGHT"],
+    "BREAST":      ["LEFT", "RIGHT"],
+    "SKIN":        ["LEFT", "RIGHT"],
+    "PLEURA":      ["LEFT", "RIGHT"],
+}
+
+
+def create_tu(dm, tr):
+    """
+    TU domain: Tumor Identification (required by RECIST 1.1 SDTM supplement).
+    Per subject:
+      TIND   — confirms subject has measurable target disease (Y)
+      NTIND  — confirms absence of non-target disease (N, simplified)
+      TUMIDENT — one record per target lesion, linked via TULNKID = TR.TRLNKID
+    All records at VISITNUM=1 (SCREENING), dated to RFSTDTC.
+    """
+    rfstdtc_map = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
+    # Lesion baselines from TR (LDIAM + LOBXFL=Y, excludes SUMDIAM)
+    ldiam_bl = tr[(tr["TRTESTCD"] == "LDIAM") & (tr["LOBXFL"] == "Y")]
+
+    tu  = []
+    seq = 1
+    for uid, lesions in ldiam_bl.groupby("USUBJID"):
+        rfstdtc = rfstdtc_map.get(uid, "")
+
+        tu.append({
+            "STUDYID": STUDYID, "DOMAIN": "TU", "USUBJID": uid, "TUSEQ": seq,
+            "TUTESTCD": "TIND", "TUTEST": "Target Indicator",
+            "TULNKID": "", "TUORRES": "Y", "TUSTRESC": "Y",
+            "TULOC": "", "TULAT": "", "TUMETHOD": "CT SCAN", "TUEVAL": "INVESTIGATOR",
+            "EPOCH": "SCREENING", "VISITNUM": 1, "VISIT": "SCREENING",
+            "TUDTC": rfstdtc, "TUDY": 1,
+        }); seq += 1
+
+        tu.append({
+            "STUDYID": STUDYID, "DOMAIN": "TU", "USUBJID": uid, "TUSEQ": seq,
+            "TUTESTCD": "NTIND", "TUTEST": "Non-Target Indicator",
+            "TULNKID": "", "TUORRES": "N", "TUSTRESC": "N",
+            "TULOC": "", "TULAT": "", "TUMETHOD": "CT SCAN", "TUEVAL": "INVESTIGATOR",
+            "EPOCH": "SCREENING", "VISITNUM": 1, "VISIT": "SCREENING",
+            "TUDTC": rfstdtc, "TUDY": 1,
+        }); seq += 1
+
+        for _, lesion in lesions.iterrows():
+            loc = np.random.choice(_TU_SITES)
+            lat = np.random.choice(_TU_LAT.get(loc, [""]))
+            tu.append({
+                "STUDYID": STUDYID, "DOMAIN": "TU", "USUBJID": uid, "TUSEQ": seq,
+                "TUTESTCD": "TUMIDENT", "TUTEST": "Tumor Identification",
+                "TULNKID": lesion["TRLNKID"],
+                "TUORRES": "TARGET", "TUSTRESC": "TARGET",
+                "TULOC": loc, "TULAT": lat,
+                "TUMETHOD": "CT SCAN", "TUEVAL": "INVESTIGATOR",
+                "EPOCH": "SCREENING", "VISITNUM": 1, "VISIT": "SCREENING",
+                "TUDTC": rfstdtc, "TUDY": 1,
+            }); seq += 1
+
+    return pd.DataFrame(tu)
+
+
+# ── DS ───────────────────────────────────────────────────────────────────────
+
 def create_ds(dm, ex, events):
     """
-    DS records per subject:
-      1. PROTOCOL MILESTONE / RANDOMIZED      (EPOCH=SCREENING)
-      2. DISPOSITION EVENT / <reason> / FULVESTRANT  (EPOCH=TREATMENT)
-      3. DISPOSITION EVENT / <reason> / EVEROLIMUS or PLACEBO (EPOCH=TREATMENT)
-      4. DISPOSITION EVENT / DEATH / STUDY    (EPOCH=FOLLOW-UP) — only if died
-    """
-    # Max treatment end per subject (Everolimus/Placebo record spans the full period)
-    ex_end = ex.groupby("USUBJID")["EXENDTC"].max().reset_index()
+    DS records per subject (5 records each):
+      1. INFORMED CONSENT OBTAINED   (PROTOCOL MILESTONE / SCREENING)
+      2. RANDOMIZED                  (PROTOCOL MILESTONE / SCREENING)
+      3. FULVESTRANT stop            (DISPOSITION EVENT / INDUCTION or CONTINUATION)
+      4. EVEROLIMUS or PLACEBO stop  (DISPOSITION EVENT / INDUCTION or CONTINUATION)
+      5. STUDY PARTICIPATION end     (DISPOSITION EVENT / FOLLOW-UP)
+             DSDECOD=DEATH for deceased subjects, else withdrawal/LTFU reason
 
+    Treatment epoch for records 3–4:
+      INDUCTION   if treatment duration ≤ 336 days (12 × 28)
+      CONTINUATION if treatment duration  > 336 days
+    """
+    ex_dates = (
+        ex.groupby("USUBJID")
+        .agg(EXSTDTC=("EXSTDTC", "min"), EXENDTC=("EXENDTC", "max"))
+        .reset_index()
+    )
+    # Use finalized DM for DTHFL/DTHDTC so DS DEATH date matches DM exactly (FB0611)
     core = (
-        dm[["USUBJID", "RFSTDTC", "ARMCD"]]
-        .merge(ex_end, on="USUBJID")
+        dm[["USUBJID", "RFICDTC", "RFSTDTC", "ARMCD", "DTHFL", "DTHDTC"]]
+        .merge(ex_dates, on="USUBJID")
         .merge(
-            events[["USUBJID", "PROGDT", "WITHDRAWAL", "DIED", "DTHDT"]],
+            events[["USUBJID", "PROGDT", "WITHDRAWAL", "FOLLOWUP_END"]],
             on="USUBJID",
             how="left",
         )
@@ -408,93 +630,87 @@ def create_ds(dm, ex, events):
 
     ds = []
     for _, row in core.iterrows():
-        progdt = row["PROGDT"]
-        has_prog = pd.notna(progdt)
-        is_withdrawal = bool(row["WITHDRAWAL"])
-        did_die = bool(row["DIED"])
-        arm = row["ARMCD"]
+        progdt     = row["PROGDT"]
+        has_prog   = pd.notna(progdt)
+        withdrawal = bool(row["WITHDRAWAL"])
+        did_die    = (row["DTHFL"] == "Y")
+        arm        = row["ARMCD"]
+
+        exstdtc = datetime.strptime(str(row["EXSTDTC"])[:10], "%Y-%m-%d")
+        exendtc = datetime.strptime(str(row["EXENDTC"])[:10], "%Y-%m-%d")
+        tx_days = (exendtc - exstdtc).days
+        tx_epoch = "INDUCTION" if tx_days <= _INDUCTION_DAYS else "CONTINUATION"
 
         if has_prog:
             stop_reason = "PROGRESSIVE DISEASE"
-            stop_dtc = _fmt(progdt)
-        elif is_withdrawal:
+            stop_dtc    = _fmt(progdt)
+        elif withdrawal:
             stop_reason = "WITHDRAWAL BY SUBJECT"
-            stop_dtc = str(row["EXENDTC"])[:10]
+            stop_dtc    = str(row["EXENDTC"])[:10]
         else:
-            stop_reason = "COMPLETED"
-            stop_dtc = str(row["EXENDTC"])[:10]
+            stop_reason = "LOST TO FOLLOW-UP"
+            stop_dtc    = str(row["EXENDTC"])[:10]
 
-        secondary_drug = "EVEROLIMUS" if arm == "TRT" else "PLACEBO"
+        # Use DM DTHDTC directly — ensures DS DEATH date = DM DTHDTC (FB0611)
+        if did_die and row["DTHDTC"]:
+            final_reason = "DEATH"
+            final_dtc    = str(row["DTHDTC"])[:10]
+        else:
+            final_reason = stop_reason
+            final_dtc    = _fmt(row["FOLLOWUP_END"])
+
+        secondary = "EVEROLIMUS" if arm == "TRT" else "PLACEBO"
         seq = 1
 
-        # Record 1: protocol milestone — randomization
-        ds.append(
-            {
-                "STUDYID": STUDYID,
-                "DOMAIN": "DS",
-                "USUBJID": row["USUBJID"],
-                "DSSEQ": seq,
-                "DSCAT": "PROTOCOL MILESTONE",
-                "DSSCAT": "",
-                "DSDECOD": "RANDOMIZED",
-                "DSDTC": str(row["RFSTDTC"])[:10],
-                "EPOCH": "SCREENING",
-            }
-        )
-        seq += 1
+        # 1. Informed consent
+        # CG0073: EPOCH must be null for PROTOCOL MILESTONE records
+        # CG0066: DSTERM must equal DSDECOD for PROTOCOL MILESTONE records
+        ds.append({
+            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
+            "DSSEQ": seq, "DSCAT": "PROTOCOL MILESTONE", "DSSCAT": "",
+            "DSTERM": "INFORMED CONSENT OBTAINED",
+            "DSDECOD": "INFORMED CONSENT OBTAINED",
+            "DSDTC": str(row["RFICDTC"])[:10], "EPOCH": "",
+        }); seq += 1
 
-        # Record 2: Fulvestrant stopping
-        ds.append(
-            {
-                "STUDYID": STUDYID,
-                "DOMAIN": "DS",
-                "USUBJID": row["USUBJID"],
-                "DSSEQ": seq,
-                "DSCAT": "DISPOSITION EVENT",
-                "DSSCAT": "FULVESTRANT",
-                "DSDECOD": stop_reason,
-                "DSDTC": stop_dtc,
-                "EPOCH": "TREATMENT",
-            }
-        )
-        seq += 1
+        # 2. Randomization
+        ds.append({
+            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
+            "DSSEQ": seq, "DSCAT": "PROTOCOL MILESTONE", "DSSCAT": "",
+            "DSTERM": "RANDOMIZED",
+            "DSDECOD": "RANDOMIZED",
+            "DSDTC": str(row["RFSTDTC"])[:10], "EPOCH": "",
+        }); seq += 1
 
-        # Record 3: Everolimus / Placebo stopping
-        ds.append(
-            {
-                "STUDYID": STUDYID,
-                "DOMAIN": "DS",
-                "USUBJID": row["USUBJID"],
-                "DSSEQ": seq,
-                "DSCAT": "DISPOSITION EVENT",
-                "DSSCAT": secondary_drug,
-                "DSDECOD": stop_reason,
-                "DSDTC": stop_dtc,
-                "EPOCH": "TREATMENT",
-            }
-        )
-        seq += 1
+        # 3. Fulvestrant discontinuation
+        ds.append({
+            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
+            "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": "FULVESTRANT",
+            "DSTERM": stop_reason, "DSDECOD": stop_reason,
+            "DSDTC": stop_dtc, "EPOCH": tx_epoch,
+        }); seq += 1
 
-        # Record 4: death (only if subject died during follow-up)
-        if did_die and pd.notna(row["DTHDT"]):
-            ds.append(
-                {
-                    "STUDYID": STUDYID,
-                    "DOMAIN": "DS",
-                    "USUBJID": row["USUBJID"],
-                    "DSSEQ": seq,
-                    "DSCAT": "DISPOSITION EVENT",
-                    "DSSCAT": "STUDY",
-                    "DSDECOD": "DEATH",
-                    "DSDTC": _fmt(row["DTHDT"]),
-                    "EPOCH": "FOLLOW-UP",
-                }
-            )
+        # 4. Everolimus / Placebo discontinuation
+        ds.append({
+            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
+            "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": secondary,
+            "DSTERM": stop_reason, "DSDECOD": stop_reason,
+            "DSDTC": stop_dtc, "EPOCH": tx_epoch,
+        }); seq += 1
+
+        # 5. End of study participation (all subjects)
+        ds.append({
+            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
+            "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": "STUDY PARTICIPATION",
+            "DSTERM": final_reason, "DSDECOD": final_reason,
+            "DSDTC": final_dtc, "EPOCH": "FOLLOW-UP",
+        })
 
     return pd.DataFrame(ds)
 
 
-# ---------------- ADSL ----------------
+# ── ADSL ─────────────────────────────────────────────────────────────────────
+
 def _best_response(responses):
     for r in ("PR", "SD", "PD"):
         if r in responses.values:
@@ -503,13 +719,9 @@ def _best_response(responses):
 
 
 def create_adsl(dm, ex, rs, events):
-    # Subject-level treatment dates (earliest start, latest end across all EX records)
     ex_dates = (
         ex.groupby("USUBJID")
-        .agg(
-            EXSTDTC=("EXSTDTC", "min"),
-            EXENDTC=("EXENDTC", "max"),
-        )
+        .agg(EXSTDTC=("EXSTDTC", "min"), EXENDTC=("EXENDTC", "max"))
         .reset_index()
     )
     ex_dates["EXSTDTC"] = pd.to_datetime(ex_dates["EXSTDTC"])
@@ -517,8 +729,7 @@ def create_adsl(dm, ex, rs, events):
 
     bestresp_map = rs.groupby("USUBJID")["RSSTRESC"].apply(_best_response).to_dict()
 
-    # Derive ADaM TRT01A from ARMCD
-    dm_copy = dm.copy()
+    dm_copy        = dm.copy()
     dm_copy["TRT01A"] = dm_copy["ARMCD"].map({"TRT": "Treatment", "PLC": "Placebo"})
 
     core = (
@@ -531,121 +742,142 @@ def create_adsl(dm, ex, rs, events):
     for _, row in core.iterrows():
         progdt = row["PROGDT"]
         if pd.notna(progdt):
-            pfs = (progdt - row["EXSTDTC"]).days
-            cnsr = 0
+            pfs    = (progdt - row["EXSTDTC"]).days
+            cnsr   = 0
             dcsreas = "PROGRESSIVE DISEASE"
         else:
-            pfs = (row["EXENDTC"] - row["EXSTDTC"]).days
-            cnsr = 1
-            dcsreas = "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "COMPLETED"
+            pfs    = (row["EXENDTC"] - row["EXSTDTC"]).days
+            cnsr   = 1
+            dcsreas = "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "LOST TO FOLLOW-UP"
 
-        records.append(
-            {
-                "STUDYID": STUDYID,
-                "USUBJID": row["USUBJID"],
-                "TRT01A": row["TRT01A"],
-                "AGE": row["AGE"],
-                "PFS": pfs,
-                "CNSR": cnsr,
-                "BESTRESP": bestresp_map.get(row["USUBJID"], ""),
-                "DCSREAS": dcsreas,
-            }
-        )
+        records.append({
+            "STUDYID":  STUDYID,
+            "USUBJID":  row["USUBJID"],
+            "TRT01P":   row["TRT01A"],   # planned = actual (no crossover in this study)
+            "TRT01A":   row["TRT01A"],
+            "AGE":      row["AGE"],
+            "PFS":      pfs,
+            "CNSR":     cnsr,
+            "BESTRESP": bestresp_map.get(row["USUBJID"], ""),
+            "DCSREAS":  dcsreas,
+            "ITTFL":    "Y",   # all randomised subjects are in the ITT population
+            "SAFFL":    "Y",   # all subjects with ≥1 treatment exposure
+            "PPROTFL":  "N" if dcsreas == "LOST TO FOLLOW-UP" else "Y",
+        })
 
     return pd.DataFrame(records)
 
 
-# ---------------- ADTTE ----------------
+# ── ADTTE ─────────────────────────────────────────────────────────────────────
+
 def create_adtte(adsl):
-    return pd.DataFrame(
-        [
-            {
-                "STUDYID": STUDYID,
-                "USUBJID": row["USUBJID"],
-                "PARAMCD": "PFS",
-                "PARAM": "Progression-Free Survival",
-                "AVAL": float(row["PFS"]),
-                "CNSR": row["CNSR"],
-                "TRT01A": row["TRT01A"],
-            }
-            for _, row in adsl.iterrows()
-        ]
-    )
+    return pd.DataFrame([
+        {
+            "STUDYID": STUDYID,
+            "USUBJID": row["USUBJID"],
+            "PARAMCD": "PFS",
+            "PARAM":   "Progression-Free Survival",
+            "AVAL":    float(row["PFS"]),
+            "CNSR":    row["CNSR"],
+            "TRT01A":  row["TRT01A"],
+        }
+        for _, row in adsl.iterrows()
+    ])
 
 
-# ---------------- TV ----------------
+# ── TV ────────────────────────────────────────────────────────────────────────
+
 def create_tv():
+    """
+    Planned visit schedule through approximately 18 cycles (~1500 days).
+    Assessment visits are assigned to INDUCTION or CONTINUATION epoch based on
+    the 12-cycle (336-day) boundary.
+    """
     visits = [
-        (1, "SCREENING", -14, 0, "SCREENING"),
-        (2, "BASELINE", 1, 1, "TREATMENT"),
+        (1, "SCREENING",  -14, 0,  "SCREENING"),
+        (2, "BASELINE",     1, 1,  "INDUCTION"),
     ]
-    # Tumour assessment visits matching TR VISITNUM scheme (3 = Week 12, etc.)
-    for v, day in enumerate(range(85, 800, 84), start=1):
-        visits.append((v + 2, f"WEEK {v * 12}", day, day, "TREATMENT"))
+    for v, day in enumerate(range(85, 1500, 84), start=1):
+        epoch = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
+        visits.append((v + 2, f"WEEK {v * 12}", day, day, epoch))
     visits.append((len(visits) + 1, "END OF TREATMENT", "", "", "FOLLOW-UP"))
 
+    return pd.DataFrame([
+        {
+            "STUDYID": STUDYID, "DOMAIN": "TV",
+            "VISITNUM": vn, "VISIT": v,
+            "TVSTRL": s, "TVENRL": e, "EPOCH": ep,
+        }
+        for vn, v, s, e, ep in visits
+    ])
+
+
+# ── TA ────────────────────────────────────────────────────────────────────────
+
+def create_ta():
+    """
+    Trial arms with four epochs:
+      SCREENING    → subject randomised
+      INDUCTION    → blinded treatment (TRT: Fulv + Ever; PLC: Fulv + Pbo)
+      CONTINUATION → open-label (TRT: Fulv + Ever; PLC: Fulv only — placebo discontinued)
+      FOLLOW-UP    → survival follow-up after treatment ends
+
+    TRANS captures the conditional branch to FOLLOW-UP on PD or unacceptable toxicity.
+    """
     rows = []
-    for visitnum, visit, tvstrl, tvenrl, epoch in visits:
-        rows.append(
-            {
-                "STUDYID": STUDYID,
-                "DOMAIN": "TV",
-                "VISITNUM": visitnum,
-                "VISIT": visit,
-                "TVSTRL": tvstrl,
-                "TVENRL": tvenrl,
-                "EPOCH": epoch,
-            }
-        )
+    for armcd, arm, induction_el, continuation_el in [
+        ("TRT", "Fulvestrant + Everolimus",
+         "Fulvestrant + Everolimus",   "Fulvestrant + Everolimus"),
+        ("PLC", "Fulvestrant + Placebo",
+         "Fulvestrant + Placebo",      "Fulvestrant"),
+    ]:
+        epochs = [
+            (1, "Screen",          "",               "Subject randomised",                              "SCREENING"),
+            (2, induction_el,      "",               "If PD or unacceptable toxicity, go to Follow-Up", "INDUCTION"),
+            (3, continuation_el,   "",               "If PD or unacceptable toxicity, go to Follow-Up", "CONTINUATION"),
+            (4, "Follow-Up",       "",               "",                                                "FOLLOW-UP"),
+        ]
+        for taetord, element, branch, trans, epoch in epochs:
+            rows.append({
+                "STUDYID": STUDYID, "DOMAIN": "TA",
+                "ARMCD": armcd, "ARM": arm,
+                "TAETORD": taetord,
+                "ELEMENT": element,
+                "BRANCH":  branch,
+                "TRANS":   trans,
+                "EPOCH":   epoch,
+            })
     return pd.DataFrame(rows)
 
 
-# ---------------- TA ----------------
-def create_ta():
-    return pd.DataFrame(
-        {
-            "STUDYID": STUDYID,
-            "DOMAIN": "TA",
-            "ARMCD": ["TRT", "PLC"],
-            "ARM": ["Fulvestrant + Everolimus", "Fulvestrant + Placebo"],
-            "TAETORD": [1, 1],
-            "EPOCH": ["TREATMENT", "TREATMENT"],
-        }
-    )
+# ── MAIN ──────────────────────────────────────────────────────────────────────
 
-
-# ---------------- MAIN ----------------
 if __name__ == "__main__":
-    np.random.seed(42)
+    np.random.seed(0)
 
     out_dir = os.path.join(os.path.dirname(__file__), "..", "datasets")
     os.makedirs(out_dir, exist_ok=True)
 
-    dm = create_dm(n=200)
-    ex = create_ex(dm)
-    events = derive_events(ex, dm)
-    tr = create_tr(ex, events, dm)  # needs TRT01A; run before finalize_dm
-    rs = derive_rs(tr)
-    dm = finalize_dm(dm, ex, events)
-    ds = create_ds(dm, ex, events)
-    adsl = create_adsl(dm, ex, rs, events)
-    adtte = create_adtte(adsl)
-    tv = create_tv()
-    ta = create_ta()
+    dm      = create_dm(n=200)
+    ex      = create_ex(dm)
+    events  = derive_events(ex, dm)
+    ex      = finalize_ex(ex, events, dm)      # cap EX dates at progression
+    tr      = create_tr(ex, events, dm)        # needs TRT01A; run before finalize_dm
+    rs      = derive_rs(tr)
+    tu      = create_tu(dm, tr)                # tumor identification; needs TR baselines
+    dm      = finalize_dm(dm, ex, events)
+    ds      = create_ds(dm, ex, events)
+    adsl    = create_adsl(dm, ex, rs, events)
+    adtte   = create_adtte(adsl)
+    tv      = create_tv()
+    ta      = create_ta()
 
     for name, df in [
-        ("DM", dm),
-        ("EX", ex),
-        ("TR", tr),
-        ("RS", rs),
-        ("DS", ds),
-        ("ADSL", adsl),
-        ("ADTTE", adtte),
-        ("TV", tv),
-        ("TA", ta),
+        ("DM", dm), ("EX", ex), ("TU", tu), ("TR", tr), ("RS", rs), ("DS", ds),
+        ("ADSL", adsl), ("ADTTE", adtte), ("TV", tv), ("TA", ta),
     ]:
         # Exclude internal helper column TRT01A from SDTM DM output
         out_df = df.drop(columns=["TRT01A"], errors="ignore") if name == "DM" else df
-        path = os.path.join(out_dir, f"{name.lower()}.csv")
+        path   = os.path.join(out_dir, f"{name}.csv")
         out_df.to_csv(path, index=False)
-        print(f"Wrote {name.lower()}.csv  ({len(out_df)} rows)")
+        print(f"Wrote {name}.csv  ({len(out_df)} rows)")
