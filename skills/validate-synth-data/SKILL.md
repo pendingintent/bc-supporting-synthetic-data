@@ -76,8 +76,8 @@ Per-domain checks on required columns, controlled terminology, and value formats
 
 ### Category 3 — RECIST derivation
 - Each RS response for a subject can be traced to a TR record on the same date
-- RSSTRESC values are consistent with RECIST v1.0: PR means ≤−30% change from baseline TRSTRESN, PD means ≥+20% change, SD is everything else
-- Every RS USUBJID has a baseline (ABLFL=Y) record in TR
+- RSSTRESC values are consistent with RECIST v1.1 thresholds derived from TR SUMDIAM (CR=0, PR ≤−30% vs baseline, PD ≥+20% vs baseline, SD otherwise; NE when TRSTAT=NOT DONE)
+- Every RS USUBJID has a baseline TR SUMDIAM record in TR (LOBXFL=Y)
 
 ### Category 4 — PFS fidelity
 - Compute median PFS (days) for Treatment and Placebo arms from ADTTE (CNSR-aware, using Kaplan-Meier or simple observed median as a proxy)
