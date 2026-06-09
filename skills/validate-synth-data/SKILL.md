@@ -14,7 +14,7 @@ description: >
 
 ## What this skill does
 
-Runs a four-category quality check on the CSV files in `datasets/` and produces a
+Runs a seven-category (100-check) quality check on the CSV files in `datasets/` and produces a
 markdown report (`validation_report.md`) with a pass/fail table, counts, and a PFS
 fidelity section comparing generated medians to the published trial values.
 
