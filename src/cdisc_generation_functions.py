@@ -772,6 +772,7 @@ def create_fa(ds):
             "DOMAIN":   "FA",
             "USUBJID":  row["USUBJID"],
             "FASEQ":    seq,
+            "_DSSEQ":   row["DSSEQ"],   # parent DS sequence; used by create_relrec, not written to CSV
             "FATESTCD": "OCCUR",
             "FATEST":   "Occurrence Indicator",
             "FAOBJ":    row["DSDECOD"],
@@ -790,27 +791,24 @@ def create_relrec(fa, ds):
     """
     RELREC domain: Related Records — links each FA record to its parent DS record
     via paired rows sharing a common RELID, satisfying CG0603 (CORE-000767).
-    Each relationship emits two rows: one for the FA record and one for the DS record.
+    Each FA row carries _DSSEQ (the exact DSSEQ of its source DS record), giving a
+    strict 1:1 link that emits exactly two RELREC rows per relationship.
     """
-    ds_idx = ds.groupby(["USUBJID", "DSDECOD"])["DSSEQ"].apply(list).to_dict()
     rows = []
-    rel_id = 1
-    for _, fa_row in fa.iterrows():
-        for dsseq in ds_idx.get((fa_row["USUBJID"], fa_row["FAOBJ"]), []):
-            rel_str = str(rel_id)
-            rows.append({
-                "STUDYID":  STUDYID, "RDOMAIN": "FA",
-                "USUBJID":  fa_row["USUBJID"],
-                "IDVAR":    "FASEQ", "IDVARVAL": str(int(fa_row["FASEQ"])),
-                "RELTYPE":  "", "RELID": rel_str,
-            })
-            rows.append({
-                "STUDYID":  STUDYID, "RDOMAIN": "DS",
-                "USUBJID":  fa_row["USUBJID"],
-                "IDVAR":    "DSSEQ", "IDVARVAL": str(int(dsseq)),
-                "RELTYPE":  "", "RELID": rel_str,
-            })
-            rel_id += 1
+    for rel_id, (_, fa_row) in enumerate(fa.iterrows(), start=1):
+        rel_str = str(rel_id)
+        rows.append({
+            "STUDYID": STUDYID, "RDOMAIN": "FA",
+            "USUBJID": fa_row["USUBJID"],
+            "IDVAR": "FASEQ", "IDVARVAL": str(int(fa_row["FASEQ"])),
+            "RELTYPE": "", "RELID": rel_str,
+        })
+        rows.append({
+            "STUDYID": STUDYID, "RDOMAIN": "DS",
+            "USUBJID": fa_row["USUBJID"],
+            "IDVAR": "DSSEQ", "IDVARVAL": str(int(fa_row["_DSSEQ"])),
+            "RELTYPE": "", "RELID": rel_str,
+        })
     return pd.DataFrame(rows)
 
 
@@ -988,8 +986,9 @@ if __name__ == "__main__":
         ("DM", dm), ("EX", ex), ("TU", tu), ("TR", tr), ("RS", rs), ("DS", ds),
         ("FA", fa), ("RELREC", relrec), ("ADSL", adsl), ("ADTTE", adtte), ("TV", tv), ("TA", ta),
     ]:
-        # Exclude internal helper column TRT01A from SDTM DM output
-        out_df = df.drop(columns=["TRT01A"], errors="ignore") if name == "DM" else df
+        # Strip internal helper columns not written to CSV
+        drop_cols = {"DM": ["TRT01A"], "FA": ["_DSSEQ"]}.get(name, [])
+        out_df = df.drop(columns=drop_cols, errors="ignore")
         path   = os.path.join(out_dir, f"{name}.csv")
         out_df.to_csv(path, index=False)
         print(f"Wrote {name}.csv  ({len(out_df)} rows)")
