@@ -652,14 +652,18 @@ def build_report(datasets: Path, categories: dict[str, list[CheckResult]],
     lines.append("| Arm | Observed Median (days) | Target (days) | Tolerance | Deviation | Result |")
     lines.append("|-----|------------------------|---------------|-----------|-----------|--------|")
     for res in categories.get("Category 7 — PFS Fidelity", []):
-        # parse detail string
         if "observed=" in res.detail:
-            parts = dict(p.split("=") for p in res.detail.replace("d", "").split(", "))
+            # Strip trailing unit suffixes from values only, not from key names.
+            # detail format: "observed=226d, target=314d, dev=+24.2%"
+            parts = {}
+            for token in res.detail.split(", "):
+                key, val = token.split("=", 1)
+                parts[key.strip()] = re.sub(r"[d%]+$", "", val.strip())
             obs = parts.get("observed", "?")
             tgt = parts.get("target", "?")
             dev = parts.get("dev", "?") + "%"
             arm = res.name.split(":")[1].strip().split(" ")[0]
-            tol_str = f"±{int(float(tgt)*PFS_TOLERANCE):.0f}d" if tgt != "?" else ""
+            tol_str = f"±{int(float(tgt) * PFS_TOLERANCE):.0f}d" if tgt != "?" else ""
             result = "PASS" if res.passed else "FAIL"
             lines.append(f"| {arm} | {obs} | {tgt} | {tol_str} | {dev} | {result} |")
 

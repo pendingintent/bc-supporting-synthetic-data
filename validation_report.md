@@ -17,7 +17,7 @@
 | Category 7 — PFS Fidelity | 2 | 2 | 0 |
 | **Total** | **100** | **100** | **0** |
 
-**Overall: PASS ✓**
+**Overall: **PASS ✓****
 
 ## Detailed Results
 
@@ -139,5 +139,5 @@
 
 | Arm | Observed Median (days) | Target (days) | Tolerance | Deviation | Result |
 |-----|------------------------|---------------|-----------|-----------|--------|
-| Treatment | ? | 314 | ±62d | ?% | PASS |
-| Placebo | ? | 155 | ±31d | ?% | PASS |
+| Treatment | 256 | 314 | ±62d | -18.3% | PASS |
+| Placebo | 175 | 155 | ±31d | +12.9% | PASS |
