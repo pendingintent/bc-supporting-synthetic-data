@@ -13,7 +13,7 @@ Synthetic CDISC-compliant datasets modeled after **NCT01797120 (PrE0102)** — a
 | Trial | NCT01797120 (PrE0102) |
 | Indication | HR+ HER2− metastatic breast cancer (AI-resistant, postmenopausal) |
 | Design | Phase II, randomized, double-blind, placebo-controlled |
-| Arms | Fulvestrant 500 mg + Everolimus 10 mg (n=66) vs. Fulvestrant + Placebo (n=65) |
+| Arms | Fulvestrant 500 mg + Everolimus 10 mg (n=100) vs. Fulvestrant + Placebo (n=100) |
 | Primary endpoint | Progression-Free Survival (PFS) |
 | Published PFS | 10.3 months (treatment) vs. 5.1 months (placebo) |
 | Publication | *Journal of Clinical Oncology*, June 2018 (PMID: 29664714) |
@@ -26,22 +26,20 @@ Synthetic CDISC-compliant datasets modeled after **NCT01797120 (PrE0102)** — a
 bc-supporting-synthetic-data/
 ├── src/
 │   └── cdisc_generation_functions.py   # Python functions that generate all datasets
-├── datasets/                           # Generated CDISC CSV files
-│   ├── DM.csv                          # Demographics (SDTM)
-│   ├── EX.csv                          # Exposure (SDTM)
-│   ├── TR.csv                          # Tumor Results (SDTM)
-│   ├── RS.csv                          # Disease Response (SDTM)
-│   ├── DS.csv                          # Disposition (SDTM)
-│   ├── TV.csv                          # Trial Visits (SDTM)
-│   ├── TA.csv                          # Trial Arms (SDTM)
-│   ├── ADSL.csv                        # Subject-Level Analysis (ADaM)
-│   └── ADTTE.csv                       # Time-to-Event Analysis (ADaM)
+├── datasets/                           # Generated CDISC CSV files (see Datasets section)
+├── skills/
+│   └── validate-synth-data/            # Claude Code skill for dataset validation
+│       ├── SKILL.md                    # Skill definition and workflow
+│       ├── scripts/validate.py         # 100-check validation script
+│       ├── evals/evals.json            # Skill test prompts
+│       └── references/                 # CDISC rule sets and RECIST 1.1 supplement
 ├── protocol/
 │   └── NCT01797120.pdf                 # Original trial protocol
 ├── results/
 │   ├── NCT01797120-results.md          # Human-readable results summary
 │   └── NCT01797120-results.fhir.json   # FHIR EBM bundle of published results
-└── CLAUDE.md                           # AI assistant instructions
+├── validation_report.md                # Latest validation output (100/100 checks)
+└── CLAUDE.md                           # AI assistant project instructions
 ```
 
 ---
@@ -50,70 +48,176 @@ bc-supporting-synthetic-data/
 
 ### SDTM Domains
 
-| Domain | Description |
-|---|---|
-| `DM` | Demographics — age, sex, treatment arm, randomization date |
-| `EX` | Exposure — study drug, dose, start/end dates |
-| `TR` | Tumor Results — per-visit lesion measurements (RECIST v1.0) |
-| `RS` | Disease Response — PR/SD/PD assessments derived from TR |
-| `DS` | Disposition — reason for study discontinuation |
-| `TV` | Trial Visits — planned visit schedule |
-| `TA` | Trial Arms — treatment arm definitions |
+| Domain | File | Description |
+|---|---|---|
+| `DM` | `DM.csv` | Demographics — age, sex, arm, randomization/consent/reference dates |
+| `EX` | `EX.csv` | Exposure — drug, dose, route, start/end dates, study days |
+| `TU` | `TU.csv` | Tumor Identification — target lesion locations per RECIST 1.1 (TU domain) |
+| `TR` | `TR.csv` | Tumor Results — per-lesion LDIAM and visit-level SUMDIAM measurements |
+| `RS` | `RS.csv` | Disease Response — CR/PR/SD/PD/NE derived from SUMDIAM per RECIST 1.1 |
+| `DS` | `DS.csv` | Disposition — informed consent, randomization, treatment stop, study end |
+| `TV` | `TV.csv` | Trial Visits — planned visit schedule through ~18 cycles |
+| `TA` | `TA.csv` | Trial Arms — SCREENING / INDUCTION / CONTINUATION / FOLLOW-UP epochs |
 
 ### ADaM Datasets
 
-| Dataset | Description |
-|---|---|
-| `ADSL` | Subject-Level Analysis Dataset — one row per subject, all baseline and summary variables |
-| `ADTTE` | Time-to-Event — PFS with `AVAL` (days), `CNSR` (0=event, 1=censored), `PARAMCD="PFS"` |
+| Dataset | File | Description |
+|---|---|---|
+| `ADSL` | `ADSL.csv` | Subject-Level Analysis — baseline, flags (ITTFL, SAFFL, PPROTFL), PFS, best response |
+| `ADTTE` | `ADTTE.csv` | Time-to-Event — PFS with `AVAL` (days), `CNSR`, `PARAMCD="PFS"` |
 
 ### Key Variables
 
 | Variable | Description |
 |---|---|
 | `USUBJID` | Unique subject ID — format `SYNTH-ONC-001-NNNN` |
-| `TRT01A` | Treatment arm — `"Treatment"` or `"Placebo"` |
-| `RSSTRESC` | Response category — `PR`, `SD`, or `PD` (RECIST v1.0) |
-| `AVAL` | Analysis value (days to event/censoring) in ADTTE |
+| `TRT01A` | Actual treatment arm — `"Treatment"` or `"Placebo"` |
+| `RSSTRESC` | RECIST 1.1 response — `CR`, `PR`, `SD`, `PD`, or `NE` |
+| `AVAL` | Analysis value (days to progression or censoring) in ADTTE |
 | `CNSR` | Censoring flag — `0` = progression event, `1` = censored |
+| `LOBXFL` | Last observation before exposure flag (baseline) in TR |
+| `TRLNKID` | Links TR lesion records to TU tumor identification records |
 
 ---
 
 ## Regenerating the Data
 
-Requires Python 3.8+ with `pandas` and `numpy`.
+### Prerequisites
 
 ```bash
 pip install pandas numpy
+# or, using the project venv:
+python -m venv .venv && source .venv/bin/activate && pip install pandas numpy
 ```
+
+### Run the generator
+
+```bash
+python src/cdisc_generation_functions.py
+```
+
+This writes all CSV files to `datasets/` using `numpy.random.seed(0)` for reproducibility.
+
+### Generation order (if calling functions directly)
+
+Each function depends on the previous output:
 
 ```python
 from src.cdisc_generation_functions import *
+import numpy as np
 
-dm    = create_dm(n=200)
-ex    = create_ex(dm)
+np.random.seed(0)
+
+dm     = create_dm(n=200)
+ex     = create_ex(dm)
 events = derive_events(ex, dm)
-tr    = create_tr(ex, events)
-rs    = derive_rs(tr)
-ds    = create_ds(dm, ex, rs)
-adsl  = create_adsl(dm, ex, rs)
-tv    = create_tv()
-ta    = create_ta()
+ex     = finalize_ex(ex, events, dm)   # cap EX end dates at progression
+tr     = create_tr(ex, events, dm)
+rs     = derive_rs(tr)
+tu     = create_tu(dm, tr)
+dm     = finalize_dm(dm, ex, events)
+ds     = create_ds(dm, ex, events)
+adsl   = create_adsl(dm, ex, rs, events)
+adtte  = create_adtte(adsl)
+tv     = create_tv()
+ta     = create_ta()
 ```
-
-Each function depends on the output of the previous. The default `n=200` generates 200 synthetic subjects (100 per arm). Progression parameters are calibrated via simulation to reproduce the published trial KM medians.
 
 ---
 
-## CDISC Standards
+## Validating the Datasets
 
-- **SDTM:** CDISC SDTM v1.7 variable naming and controlled terminology
-- **ADaM:** CDISC ADaM BDS/ADTTE conventions
-- **Response:** RECIST v1.0 (PR ≤ −30% change from baseline tumor sum; PD ≥ +20%)
-- **FHIR:** Results bundle conforms to `http://hl7.org/fhir/uv/ebm` EBM profiles
+A dedicated validation script checks 100 rules across seven categories:
+
+| Category | Checks |
+|---|---|
+| CDISC Structural | Required variables, controlled terminology, value formats per domain |
+| Cross-domain Integrity | USUBJID consistency, arm-drug assignments, DS record completeness |
+| RECIST Derivation | SUMDIAM traceability, response classification, TU-TR linkage |
+| Timeline & Death Logic | Date ordering, no post-death observations, DTHDTC consistency |
+| Population Distribution | Age range, enrollment spread, variability across subjects |
+| Duplicate & Study Consistency | Sequence key uniqueness, domain coverage |
+| PFS Fidelity | Observed median PFS vs. published trial results (±20% tolerance) |
+
+### Run directly
+
+```bash
+python skills/validate-synth-data/scripts/validate.py \
+  --datasets datasets/ \
+  --output validation_report.md
+```
+
+### Run via Claude Code
+
+If you have the skill installed (see Claude Code Setup below), you can ask Claude to validate the datasets in plain language:
+
+> *"validate my datasets"*  
+> *"check the CSVs before I package the ZIP"*  
+> *"something looks off with the RS domain — audit the RECIST derivation"*
+
+Claude will run the script and present the report with plain-language explanations of any failures.
+
+---
+
+## Claude Code Setup
+
+This project includes a Claude Code skill (`skills/validate-synth-data/`) that adds dataset validation as a natural-language command. To activate it:
+
+### 1. Install Claude Code
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+Or download the desktop app from [claude.ai/code](https://claude.ai/code).
+
+### 2. Install the skill
+
+Copy (or symlink) the skill into your Claude Code skills directory:
+
+```bash
+# Copy
+cp -r skills/validate-synth-data ~/.claude/skills/validate-synth-data
+
+# Or symlink (changes in the repo are reflected immediately)
+ln -s "$(pwd)/skills/validate-synth-data" ~/.claude/skills/validate-synth-data
+```
+
+### 3. Open the project in Claude Code
+
+```bash
+claude  # from the project root
+```
+
+Claude will automatically load `CLAUDE.md` for project context and pick up the skill from `~/.claude/skills/`.
+
+### 4. Verify the skill is active
+
+In the Claude Code session, run:
+
+> *"validate my datasets"*
+
+You should see a report confirming 100/100 checks pass against the committed datasets.
+
+### Updating the skill
+
+If you modify `skills/validate-synth-data/scripts/validate.py` and used a symlink, the changes are live immediately. If you copied, re-run the `cp` command above.
+
+---
+
+## CDISC Standards Conformance
+
+The datasets are generated to conform to the following standards. The `validation_report.md` in this repository reflects the current conformance status.
+
+| Standard | Version | Coverage |
+|---|---|---|
+| SDTMIG | 3.4 | DM, EX, TU, TR, RS, DS, TV, TA |
+| ADaMIG | 1.3 | ADSL (OCCDS), ADTTE (TTE) |
+| RECIST | 1.1 | LDIAM/SUMDIAM in TR; CR/PR/SD/PD/NE in RS; TU domain |
+| CDISC Conformance Rules | CORE | Key rules: CG0102, CG0073, CG0066, CG0432, CG0142, FB2201, FB0611, CG0563 |
 
 ---
 
 ## License
 
-Synthetic data only. No patient privacy concerns. Refer to `protocol/NCT01797120.pdf` for the original trial protocol.
+Synthetic data only. No patient privacy concerns. Refer to `protocol/NCT01797120.pdf` for the original trial protocol (copyright-exempt for non-commercial use per the RECIST Working Group).
