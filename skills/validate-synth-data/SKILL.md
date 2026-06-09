@@ -25,9 +25,9 @@ fidelity section comparing generated medians to the published trial values.
 Default path is `./datasets/` relative to the project root. If the user specifies a
 different path (e.g. after unzipping an archive), use that instead.
 
-Check that these files exist before running:
-`DM.csv`, `EX.csv`, `TR.csv`, `RS.csv`, `DS.csv`, `ADSL.csv`, `ADTTE.csv`, `DS.csv`
-
+Check that these files exist before running (required by the script):
+`DM.csv`, `EX.csv`, `TR.csv`, `RS.csv`, `DS.csv`, `ADSL.csv`, `ADTTE.csv`
+If `TU.csv` is present it will also be validated (RECIST TU↔TR linkage checks).
 If any are missing, report them and stop early with a clear message.
 
 ### 2. Run the validation script
