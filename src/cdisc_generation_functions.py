@@ -1001,7 +1001,7 @@ def create_ds(dm, ex, events):
                 "DSTERM": "INFORMED CONSENT OBTAINED",
                 "DSDECOD": "INFORMED CONSENT OBTAINED",
                 "DSSTDTC": str(row["RFICDTC"])[:10],
-                "EPOCH": "SCREENING",
+                "EPOCH": "",
             }
         )
         seq += 1
@@ -1018,7 +1018,7 @@ def create_ds(dm, ex, events):
                 "DSTERM": "RANDOMIZED",
                 "DSDECOD": "RANDOMIZED",
                 "DSSTDTC": str(row["RFSTDTC"])[:10],
-                "EPOCH": "SCREENING",
+                "EPOCH": "",
             }
         )
         seq += 1
