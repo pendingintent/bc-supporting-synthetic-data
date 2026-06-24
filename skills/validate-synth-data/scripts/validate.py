@@ -541,8 +541,8 @@ def check_recist(datasets: Path) -> list[CheckResult]:
             "no SUMDIAM records found in TR",
         )
     else:
-        bl_sumd = sumdiam[sumdiam["LOBXFL"] == "Y"].set_index("USUBJID")["TRSTRESN"]
-        post_sumd = sumdiam[sumdiam["LOBXFL"] != "Y"].copy()
+        bl_sumd = sumdiam[sumdiam["TRLOBXFL"] == "Y"].set_index("USUBJID")["TRSTRESN"]
+        post_sumd = sumdiam[sumdiam["TRLOBXFL"] != "Y"].copy()
         post_sumd = post_sumd.merge(bl_sumd.rename("BASE_SUMD").reset_index(), on="USUBJID", how="left")
         post_sumd = post_sumd.dropna(subset=["BASE_SUMD"])
 
