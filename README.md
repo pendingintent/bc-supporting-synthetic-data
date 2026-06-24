@@ -24,6 +24,9 @@ Synthetic CDISC-compliant datasets modeled after **NCT01797120 (PrE0102)** — a
 
 ```
 bc-supporting-synthetic-data/
+├── .github/
+│   └── workflows/
+│       └── lint.yml                    # GitHub Actions: black + flake8 on every push/PR
 ├── src/
 │   └── cdisc_generation_functions.py   # Python functions that generate all datasets
 ├── datasets/                           # Generated CDISC CSV files (see Datasets section)
@@ -38,8 +41,12 @@ bc-supporting-synthetic-data/
 ├── results/
 │   ├── NCT01797120-results.md          # Human-readable results summary
 │   └── NCT01797120-results.fhir.json   # FHIR EBM bundle of published results
-├── validation_report.md                # Latest validation output (100/100 checks)
-└── CLAUDE.md                           # AI assistant project instructions
+├── .pre-commit-config.yaml             # Pre-commit hooks (black, flake8)
+├── CLAUDE.md                           # AI assistant project instructions
+├── ONBOARDING.md                       # Onboarding guide for new contributors
+├── requirements.txt                    # Python dependencies
+├── setup.cfg                           # Flake8 and black configuration (max-line-length=120)
+└── validation_report.md                # Latest validation output (100/100 checks)
 ```
 
 ---
@@ -56,6 +63,8 @@ bc-supporting-synthetic-data/
 | `TR` | `TR.csv` | Tumor Results — per-lesion LDIAM and visit-level SUMDIAM measurements |
 | `RS` | `RS.csv` | Disease Response — CR/PR/SD/PD/NE derived from SUMDIAM per RECIST 1.1 |
 | `DS` | `DS.csv` | Disposition — informed consent, randomization, treatment stop, study end |
+| `FA` | `FA.csv` | Findings About — occurrence indicators for consent and randomization events |
+| `RELREC` | `RELREC.csv` | Related Records — links FA and DS records per subject |
 | `TV` | `TV.csv` | Trial Visits — planned visit schedule through ~18 cycles |
 | `TA` | `TA.csv` | Trial Arms — SCREENING / INDUCTION / CONTINUATION / FOLLOW-UP epochs |
 
@@ -85,9 +94,9 @@ bc-supporting-synthetic-data/
 ### Prerequisites
 
 ```bash
-pip install pandas numpy
+pip install -r requirements.txt
 # or, using the project venv:
-python -m venv .venv && source .venv/bin/activate && pip install pandas numpy
+python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 ```
 
 ### Run the generator
@@ -211,7 +220,7 @@ The datasets are generated to conform to the following standards. The `validatio
 
 | Standard | Version | Coverage |
 |---|---|---|
-| SDTMIG | 3.4 | DM, EX, TU, TR, RS, DS, TV, TA |
+| SDTMIG | 3.4 | DM, EX, TU, TR, RS, DS, FA, RELREC, TV, TA |
 | ADaMIG | 1.3 | ADSL (OCCDS), ADTTE (TTE) |
 | RECIST | 1.1 | LDIAM/SUMDIAM in TR; CR/PR/SD/PD/NE in RS; TU domain |
 | CDISC Conformance Rules | CORE | Key rules: CG0102, CG0073, CG0066, CG0432, CG0142, FB2201, FB0611, CG0563 |
