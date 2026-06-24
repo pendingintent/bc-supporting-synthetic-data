@@ -14,19 +14,29 @@ _INDUCTION_DAYS = 12 * 28  # 336 days
 #   Placebo   target:  5.1 months (155 days)  → p=0.90, exp scale=195 days
 _PROG = {
     "Treatment": {"prob": 0.85, "scale": 350},
-    "Placebo":   {"prob": 0.90, "scale": 195},
+    "Placebo": {"prob": 0.90, "scale": 195},
 }
 
 # Tumour dynamics: responder/non-responder model calibrated to match FHIR-published ORR
 # (Trt 18.2%, Pbo 12.3%).  Responders: −12 mm/visit drift; non-responders: +2 mm/visit.
 _TUMOUR = {
-    "Treatment": {"resp_frac": 0.21, "drift_resp": -12.0, "drift_nonresp": +2.0, "noise": 8.0},
-    "Placebo":   {"resp_frac": 0.20, "drift_resp": -12.0, "drift_nonresp": +2.0, "noise": 8.0},
+    "Treatment": {
+        "resp_frac": 0.21,
+        "drift_resp": -12.0,
+        "drift_nonresp": +2.0,
+        "noise": 8.0,
+    },
+    "Placebo": {
+        "resp_frac": 0.20,
+        "drift_resp": -12.0,
+        "drift_nonresp": +2.0,
+        "noise": 8.0,
+    },
 }
 
 _ENROLL_START = datetime(2021, 1, 1)
-_STUDY_END    = datetime(2026, 12, 31)
-_MIN_LESION_MM = 5.0   # RECIST 1.1: "too small to measure" → 5 mm floor
+_STUDY_END = datetime(2026, 12, 31)
+_MIN_LESION_MM = 5.0  # RECIST 1.1: "too small to measure" → 5 mm floor
 
 
 def _fmt(d):
@@ -47,6 +57,7 @@ def _study_day(event_date, rfstdtc):
 
 # ── DM ───────────────────────────────────────────────────────────────────────
 
+
 def create_dm(n=200):
     # Balanced 1:1 randomisation via permutation
     arms = np.random.permutation(["Treatment"] * (n // 2) + ["Placebo"] * (n // 2))
@@ -65,36 +76,44 @@ def create_dm(n=200):
 
     _race = np.random.choice(
         ["WHITE", "BLACK OR AFRICAN AMERICAN", "ASIAN", "OTHER"],
-        size=n, p=[0.75, 0.12, 0.08, 0.05],
+        size=n,
+        p=[0.75, 0.12, 0.08, 0.05],
     )
     _ethnic = np.random.choice(
         ["NOT HISPANIC OR LATINO", "HISPANIC OR LATINO"],
-        size=n, p=[0.85, 0.15],
+        size=n,
+        p=[0.85, 0.15],
     )
 
-    dm = pd.DataFrame({
-        "SUBJID":  [f"{i:04d}" for i in range(1, n + 1)],
-        "AGE":     np.clip(np.random.normal(55, 10, n), 20, 80).astype(int),
-        "AGEU":    "YEARS",
-        "SEX":     "F",
-        "RACE":    _race,
-        "ETHNIC":  _ethnic,
-        "RFICDTC": rficdtc,
-        "RFSTDTC": rfstdtc,
-        "TRT01A":  arms,  # internal helper; excluded from CSV DM output
-        "ARMCD":   ["TRT" if a == "Treatment" else "PLC" for a in arms],
-        "ARM": [
-            "Fulvestrant + Everolimus" if a == "Treatment" else "Fulvestrant + Placebo"
-            for a in arms
-        ],
-    })
-    dm["STUDYID"]  = STUDYID
-    dm["DOMAIN"]   = "DM"
-    dm["USUBJID"]  = STUDYID + "-" + dm["SUBJID"]
-    dm["SITEID"]   = "0001"
-    dm["COUNTRY"]  = "USA"
+    dm = pd.DataFrame(
+        {
+            "SUBJID": [f"{i:04d}" for i in range(1, n + 1)],
+            "AGE": np.clip(np.random.normal(55, 10, n), 20, 80).astype(int),
+            "AGEU": "YEARS",
+            "SEX": "F",
+            "RACE": _race,
+            "ETHNIC": _ethnic,
+            "RFICDTC": rficdtc,
+            "RFSTDTC": rfstdtc,
+            "TRT01A": arms,  # internal helper; excluded from CSV DM output
+            "ARMCD": ["TRT" if a == "Treatment" else "PLC" for a in arms],
+            "ARM": [
+                (
+                    "Fulvestrant + Everolimus"
+                    if a == "Treatment"
+                    else "Fulvestrant + Placebo"
+                )
+                for a in arms
+            ],
+        }
+    )
+    dm["STUDYID"] = STUDYID
+    dm["DOMAIN"] = "DM"
+    dm["USUBJID"] = STUDYID + "-" + dm["SUBJID"]
+    dm["SITEID"] = "0001"
+    dm["COUNTRY"] = "USA"
     dm["ACTARMCD"] = dm["ARMCD"]
-    dm["ACTARM"]   = dm["ARM"]
+    dm["ACTARM"] = dm["ARM"]
     return dm
 
 
@@ -129,26 +148,51 @@ def finalize_dm(dm, ex, events):
             return dthdtc.strftime("%Y-%m-%d")
         return ""
 
-    dm["DTHDTC"]   = dm.apply(_safe_dthdtc, axis=1)
+    dm["DTHDTC"] = dm.apply(_safe_dthdtc, axis=1)
     dm["RFPENDTC"] = dm.apply(
-        lambda r: r["DTHDTC"] if (r["DTHFL"] == "Y" and r["DTHDTC"])
-        else _fmt(r["FOLLOWUP_END"]),
+        lambda r: (
+            r["DTHDTC"]
+            if (r["DTHFL"] == "Y" and r["DTHDTC"])
+            else _fmt(r["FOLLOWUP_END"])
+        ),
         axis=1,
     )
     # CG0142: RFENDTC required for all treated subjects; equals RFPENDTC in this study
     dm["RFENDTC"] = dm["RFPENDTC"]
     dm = dm.drop(columns=["DIED", "DTHDT", "FOLLOWUP_END"])
 
-    return dm[[
-        "STUDYID", "DOMAIN", "USUBJID", "SUBJID",
-        "RFSTDTC", "RFENDTC", "RFXSTDTC", "RFXENDTC", "RFICDTC", "RFPENDTC",
-        "DTHDTC", "DTHFL", "SITEID", "AGE", "AGEU", "SEX", "RACE", "ETHNIC",
-        "ARMCD", "ARM", "ACTARMCD", "ACTARM", "COUNTRY",
-        "TRT01A",   # internal helper — stripped from CSV output in __main__
-    ]]
+    return dm[
+        [
+            "STUDYID",
+            "DOMAIN",
+            "USUBJID",
+            "SUBJID",
+            "RFSTDTC",
+            "RFENDTC",
+            "RFXSTDTC",
+            "RFXENDTC",
+            "RFICDTC",
+            "RFPENDTC",
+            "DTHDTC",
+            "DTHFL",
+            "SITEID",
+            "AGE",
+            "AGEU",
+            "SEX",
+            "RACE",
+            "ETHNIC",
+            "ARMCD",
+            "ARM",
+            "ACTARMCD",
+            "ACTARM",
+            "COUNTRY",
+            "TRT01A",  # internal helper — stripped from CSV output in __main__
+        ]
+    ]
 
 
 # ── EX ───────────────────────────────────────────────────────────────────────
+
 
 def create_ex(dm):
     """
@@ -163,11 +207,11 @@ def create_ex(dm):
 
     for _, row in dm.iterrows():
         usubjid = row["USUBJID"]
-        arm     = row["TRT01A"]
+        arm = row["TRT01A"]
         rfstdtc = datetime.strptime(rfstdtc_map[usubjid], "%Y-%m-%d")
-        start   = rfstdtc           # RFXSTDTC = RFSTDTC for this trial
-        dur     = int(np.random.uniform(60, 600))
-        end     = start + timedelta(days=dur)
+        start = rfstdtc  # RFXSTDTC = RFSTDTC for this trial
+        dur = int(np.random.uniform(60, 600))
+        end = start + timedelta(days=dur)
 
         # Fulvestrant injection schedule
         # C1D1 and C1D15: 250 mg each (loading doses); subsequent cycles: 500 mg Q28D
@@ -182,33 +226,50 @@ def create_ex(dm):
             inj_date = start + timedelta(days=offset)
             stdy = _study_day(inj_date, rfstdtc)
             ex_epoch = "INDUCTION" if offset <= _INDUCTION_DAYS else "CONTINUATION"
-            records.append({
-                "STUDYID": STUDYID, "DOMAIN": "EX", "USUBJID": usubjid,
-                "EXSEQ": seq, "EXTRT": "FULVESTRANT",
-                "EXDOSE": dose, "EXDOSU": "mg", "EXDOSFRM": "SOLUTION",
-                "EXDOSFRQ": "ONCE", "EXROUTE": "INTRAMUSCULAR",
-                "EXSTDTC": inj_date.strftime("%Y-%m-%d"),
-                "EXENDTC": inj_date.strftime("%Y-%m-%d"),
-                "EXSTDY": stdy, "EXENDY": stdy,
-                "EPOCH": ex_epoch,
-            })
+            records.append(
+                {
+                    "STUDYID": STUDYID,
+                    "DOMAIN": "EX",
+                    "USUBJID": usubjid,
+                    "EXSEQ": seq,
+                    "EXTRT": "FULVESTRANT",
+                    "EXDOSE": dose,
+                    "EXDOSU": "mg",
+                    "EXDOSFRM": "SOLUTION",
+                    "EXDOSFRQ": "ONCE",
+                    "EXROUTE": "INTRAMUSCULAR",
+                    "EXSTDTC": inj_date.strftime("%Y-%m-%d"),
+                    "EXENDTC": inj_date.strftime("%Y-%m-%d"),
+                    "EXSTDY": stdy,
+                    "EXENDY": stdy,
+                    "EPOCH": ex_epoch,
+                }
+            )
             seq += 1
 
         # Everolimus (TRT) or Placebo (PLC): one continuous record spanning the period
         # Per CG0102: EXTRT=PLACEBO must have EXDOSE=0
         second_drug = "EVEROLIMUS" if arm == "Treatment" else "PLACEBO"
         second_dose = 10 if arm == "Treatment" else 0
-        records.append({
-            "STUDYID": STUDYID, "DOMAIN": "EX", "USUBJID": usubjid,
-            "EXSEQ": seq, "EXTRT": second_drug,
-            "EXDOSE": second_dose, "EXDOSU": "mg", "EXDOSFRM": "TABLET",
-            "EXDOSFRQ": "QD", "EXROUTE": "ORAL",
-            "EXSTDTC": start.strftime("%Y-%m-%d"),
-            "EXENDTC": end.strftime("%Y-%m-%d"),
-            "EXSTDY": _study_day(start, rfstdtc),
-            "EXENDY": _study_day(end,   rfstdtc),
-            "EPOCH": "INDUCTION",
-        })
+        records.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "EX",
+                "USUBJID": usubjid,
+                "EXSEQ": seq,
+                "EXTRT": second_drug,
+                "EXDOSE": second_dose,
+                "EXDOSU": "mg",
+                "EXDOSFRM": "TABLET",
+                "EXDOSFRQ": "QD",
+                "EXROUTE": "ORAL",
+                "EXSTDTC": start.strftime("%Y-%m-%d"),
+                "EXENDTC": end.strftime("%Y-%m-%d"),
+                "EXSTDY": _study_day(start, rfstdtc),
+                "EXENDY": _study_day(end, rfstdtc),
+                "EPOCH": "INDUCTION",
+            }
+        )
 
     return pd.DataFrame(records)
 
@@ -241,18 +302,15 @@ def finalize_ex(ex, events, dm):
             if row["_endt"] > prog:
                 row = row.copy()
                 row["EXENDTC"] = prog.strftime("%Y-%m-%d")
-                row["_endt"]   = prog
-                row["EXENDY"]  = _study_day(prog, rfstdtc_map[uid])
+                row["_endt"] = prog
+                row["EXENDY"] = _study_day(prog, rfstdtc_map[uid])
         keep.append(row)
 
-    return (
-        pd.DataFrame(keep)
-        .drop(columns=["_stdt", "_endt"])
-        .reset_index(drop=True)
-    )
+    return pd.DataFrame(keep).drop(columns=["_stdt", "_endt"]).reset_index(drop=True)
 
 
 # ── EVENTS (internal) ────────────────────────────────────────────────────────
+
 
 def derive_events(ex, dm):
     """
@@ -264,21 +322,23 @@ def derive_events(ex, dm):
     For progressors treatment ends at PROGDT, so follow-up is measured from there.
     """
     ex_start = ex.groupby("USUBJID")["EXSTDTC"].min().reset_index()
-    ex_end   = ex.groupby("USUBJID")["EXENDTC"].max().reset_index()
-    merged   = ex_start.merge(dm[["USUBJID", "TRT01A"]])
+    ex_end = ex.groupby("USUBJID")["EXENDTC"].max().reset_index()
+    merged = ex_start.merge(dm[["USUBJID", "TRT01A"]])
 
     records = []
     for _, row in merged.iterrows():
-        start  = datetime.strptime(str(row["EXSTDTC"])[:10], "%Y-%m-%d")
-        arm    = row["TRT01A"]
+        start = datetime.strptime(str(row["EXSTDTC"])[:10], "%Y-%m-%d")
+        arm = row["TRT01A"]
         params = _PROG[arm]
         if np.random.rand() < params["prob"]:
-            days   = max(84, int(np.random.exponential(params["scale"])))
+            days = max(84, int(np.random.exponential(params["scale"])))
             progdt = start + timedelta(days=days)
         else:
             progdt = None
         responder = np.random.rand() < _TUMOUR[arm]["resp_frac"]
-        records.append({"USUBJID": row["USUBJID"], "PROGDT": progdt, "RESPONDER": responder})
+        records.append(
+            {"USUBJID": row["USUBJID"], "PROGDT": progdt, "RESPONDER": responder}
+        )
 
     events = pd.DataFrame(records)
     no_prog = events["PROGDT"].isna()
@@ -288,15 +348,15 @@ def derive_events(ex, dm):
     died_list, dthdt_list, followup_list = [], [], []
 
     for _, row in events.iterrows():
-        progdt     = row["PROGDT"]
+        progdt = row["PROGDT"]
         withdrawal = bool(row["WITHDRAWAL"])
-        exendtc    = datetime.strptime(str(row["EXENDTC"])[:10], "%Y-%m-%d")
+        exendtc = datetime.strptime(str(row["EXENDTC"])[:10], "%Y-%m-%d")
         # Effective treatment end: progression date for progressors, EX end for others
         tx_end = progdt if (progdt is not None and pd.notna(progdt)) else exendtc
 
         if progdt is not None and pd.notna(progdt):
             if np.random.rand() < 0.75:
-                days   = max(1, int(np.random.exponential(180)))
+                days = max(1, int(np.random.exponential(180)))
                 dthdtc = min(tx_end + timedelta(days=days), _STUDY_END)
                 died_list.append(True)
                 dthdt_list.append(dthdtc)
@@ -304,11 +364,13 @@ def derive_events(ex, dm):
             else:
                 died_list.append(False)
                 dthdt_list.append(None)
-                fu_end = min(tx_end + timedelta(days=int(np.random.uniform(30, 180))), _STUDY_END)
+                fu_end = min(
+                    tx_end + timedelta(days=int(np.random.uniform(30, 180))), _STUDY_END
+                )
                 followup_list.append(fu_end)
         elif withdrawal:
             if np.random.rand() < 0.15:
-                days   = max(1, int(np.random.exponential(365)))
+                days = max(1, int(np.random.exponential(365)))
                 dthdtc = min(tx_end + timedelta(days=days), _STUDY_END)
                 died_list.append(True)
                 dthdt_list.append(dthdtc)
@@ -316,38 +378,72 @@ def derive_events(ex, dm):
             else:
                 died_list.append(False)
                 dthdt_list.append(None)
-                followup_list.append(tx_end)  # withdrew, participation ends with treatment
+                followup_list.append(
+                    tx_end
+                )  # withdrew, participation ends with treatment
         else:
             died_list.append(False)
             dthdt_list.append(None)
-            fu_end = min(tx_end + timedelta(days=int(np.random.uniform(30, 120))), _STUDY_END)
+            fu_end = min(
+                tx_end + timedelta(days=int(np.random.uniform(30, 120))), _STUDY_END
+            )
             followup_list.append(fu_end)
 
-    events["DIED"]         = died_list
-    events["DTHDT"]        = dthdt_list
+    events["DIED"] = died_list
+    events["DTHDT"] = dthdt_list
     events["FOLLOWUP_END"] = followup_list
     return events.drop(columns=["EXENDTC"])
 
 
 # ── TR ───────────────────────────────────────────────────────────────────────
 
-_NE_PROB = 0.03   # probability that any individual post-baseline assessment is not evaluable
+_NE_PROB = (
+    0.03  # probability that any individual post-baseline assessment is not evaluable
+)
 
-def _tr_record(studyid, usubjid, seq, testcd, test, grpid, lnkid,
-               trstresn, trdtc, visitnum, visit, trdy, trlobxfl, epoch,
-               trstat="", trreasnd=""):
+
+def _tr_record(
+    studyid,
+    usubjid,
+    seq,
+    testcd,
+    test,
+    grpid,
+    lnkid,
+    trstresn,
+    trdtc,
+    visitnum,
+    visit,
+    trdy,
+    trlobxfl,
+    epoch,
+    trstat="",
+    trreasnd="",
+):
     _resn_str = str(trstresn) if trstresn != "" else ""
     return {
-        "STUDYID": studyid, "DOMAIN": "TR",
-        "USUBJID":  usubjid, "TRSEQ": seq,
-        "TRTESTCD": testcd,  "TRTEST": test,
-        "TRGRPID":  grpid,   "TRLNKID": lnkid,
-        "TRORRES":  _resn_str, "TRSTRESC": _resn_str,
-        "TRSTRESN": trstresn, "TRSTRESU": "mm" if trstresn != "" else "",
-        "TRSTAT":   trstat,   "TRREASND": trreasnd,
-        "TRMETHOD": "CT SCAN", "TREVAL": "INVESTIGATOR",
-        "TRDTC": trdtc, "VISITNUM": visitnum, "VISIT": visit,
-        "TRDY": trdy, "TRLOBXFL": trlobxfl, "EPOCH": epoch,
+        "STUDYID": studyid,
+        "DOMAIN": "TR",
+        "USUBJID": usubjid,
+        "TRSEQ": seq,
+        "TRTESTCD": testcd,
+        "TRTEST": test,
+        "TRGRPID": grpid,
+        "TRLNKID": lnkid,
+        "TRORRES": _resn_str,
+        "TRSTRESC": _resn_str,
+        "TRSTRESN": trstresn,
+        "TRSTRESU": "mm" if trstresn != "" else "",
+        "TRSTAT": trstat,
+        "TRREASND": trreasnd,
+        "TRMETHOD": "CT SCAN",
+        "TREVAL": "INVESTIGATOR",
+        "TRDTC": trdtc,
+        "VISITNUM": visitnum,
+        "VISIT": visit,
+        "TRDY": trdy,
+        "TRLOBXFL": trlobxfl,
+        "EPOCH": epoch,
     }
 
 
@@ -365,52 +461,76 @@ def create_tr(ex, events, dm):
       - Absent lesion: 0 mm (complete disappearance; allowed for strong responders)
       - ~3% of post-baseline visits are not evaluable (TRSTAT=NOT DONE)
     """
-    tr  = []
+    tr = []
     seq = 1
 
     ex_starts = ex.groupby("USUBJID")["EXSTDTC"].min().reset_index()
     ex_starts["EXSTDTC"] = pd.to_datetime(ex_starts["EXSTDTC"])
     ex_end_map = pd.to_datetime(ex.groupby("USUBJID")["EXENDTC"].max()).to_dict()
-    merged = (
-        ex_starts
-        .merge(events[["USUBJID", "PROGDT", "RESPONDER"]])
-        .merge(dm[["USUBJID", "TRT01A", "RFSTDTC"]])
+    merged = ex_starts.merge(events[["USUBJID", "PROGDT", "RESPONDER"]]).merge(
+        dm[["USUBJID", "TRT01A", "RFSTDTC"]]
     )
 
     for _, row in merged.iterrows():
-        uid         = row["USUBJID"]
-        arm         = row["TRT01A"]
+        uid = row["USUBJID"]
+        arm = row["TRT01A"]
         rfstdtc_str = str(row["RFSTDTC"])[:10]
-        tp    = _TUMOUR[arm]
+        tp = _TUMOUR[arm]
         drift = tp["drift_resp"] if row["RESPONDER"] else tp["drift_nonresp"]
         noise = tp["noise"]
 
-        n_lesions     = int(np.random.choice([1, 2, 3], p=[0.3, 0.5, 0.2]))
+        n_lesions = int(np.random.choice([1, 2, 3], p=[0.3, 0.5, 0.2]))
         baseline_sizes = np.maximum(np.random.normal(25, 8, n_lesions), _MIN_LESION_MM)
-        current_sizes  = baseline_sizes.copy()
-        baseline_date  = row["EXSTDTC"]
-        bl_dtc         = baseline_date.strftime("%Y-%m-%d")
+        current_sizes = baseline_sizes.copy()
+        baseline_date = row["EXSTDTC"]
+        bl_dtc = baseline_date.strftime("%Y-%m-%d")
 
         # Baseline LDIAM records — TRLOBXFL="" (only SUMDIAM carries the Y flag)
         for li in range(n_lesions):
-            tr.append(_tr_record(
-                STUDYID, uid, seq,
-                "LDIAM", "Longest Diameter",
-                f"TARGET LESION {li + 1}", f"TL{li + 1}",
-                round(float(baseline_sizes[li]), 2),
-                bl_dtc, 2, "BASELINE", 1, "", "INDUCTION",
-            )); seq += 1
+            tr.append(
+                _tr_record(
+                    STUDYID,
+                    uid,
+                    seq,
+                    "LDIAM",
+                    "Longest Diameter",
+                    f"TARGET LESION {li + 1}",
+                    f"TL{li + 1}",
+                    round(float(baseline_sizes[li]), 2),
+                    bl_dtc,
+                    2,
+                    "BASELINE",
+                    1,
+                    "",
+                    "INDUCTION",
+                )
+            )
+            seq += 1
 
         # Baseline SUMDIAM aggregate
         bl_sumd = round(float(sum(baseline_sizes)), 2)
-        tr.append(_tr_record(
-            STUDYID, uid, seq,
-            "SUMDIAM", "Sum of Diameter", "TARGET", "",
-            bl_sumd, bl_dtc, 2, "BASELINE", 1, "Y", "INDUCTION",
-        )); seq += 1
+        tr.append(
+            _tr_record(
+                STUDYID,
+                uid,
+                seq,
+                "SUMDIAM",
+                "Sum of Diameter",
+                "TARGET",
+                "",
+                bl_sumd,
+                bl_dtc,
+                2,
+                "BASELINE",
+                1,
+                "Y",
+                "INDUCTION",
+            )
+        )
+        seq += 1
 
-        progdt  = row["PROGDT"]
-        ex_end  = ex_end_map.get(uid)
+        progdt = row["PROGDT"]
+        ex_end = ex_end_map.get(uid)
 
         for v, day in enumerate(range(85, 1500, 84), start=1):
             date = row["EXSTDTC"] + timedelta(days=day)
@@ -419,62 +539,142 @@ def create_tr(ex, events, dm):
             if ex_end is not None and date > ex_end:
                 break
 
-            dtc      = date.strftime("%Y-%m-%d")
+            dtc = date.strftime("%Y-%m-%d")
             visitnum = v + 2
-            visit    = f"WEEK {v * 12}"
-            epoch    = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
-            trdy     = _study_day(date, rfstdtc_str)
+            visit = f"WEEK {v * 12}"
+            epoch = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
+            trdy = _study_day(date, rfstdtc_str)
 
             # ~3% of visits are not evaluable (imaging quality)
             if np.random.rand() < _NE_PROB:
                 for li in range(n_lesions):
-                    tr.append(_tr_record(
-                        STUDYID, uid, seq,
-                        "LDIAM", "Longest Diameter",
-                        f"TARGET LESION {li + 1}", f"TL{li + 1}",
-                        "", dtc, visitnum, visit, trdy, "", epoch,
-                        trstat="NOT DONE", trreasnd="IMAGING QUALITY ISSUES",
-                    )); seq += 1
-                tr.append(_tr_record(
-                    STUDYID, uid, seq,
-                    "SUMDIAM", "Sum of Diameter", "TARGET", "",
-                    "", dtc, visitnum, visit, trdy, "", epoch,
-                    trstat="NOT DONE", trreasnd="IMAGING QUALITY ISSUES",
-                )); seq += 1
+                    tr.append(
+                        _tr_record(
+                            STUDYID,
+                            uid,
+                            seq,
+                            "LDIAM",
+                            "Longest Diameter",
+                            f"TARGET LESION {li + 1}",
+                            f"TL{li + 1}",
+                            "",
+                            dtc,
+                            visitnum,
+                            visit,
+                            trdy,
+                            "",
+                            epoch,
+                            trstat="NOT DONE",
+                            trreasnd="IMAGING QUALITY ISSUES",
+                        )
+                    )
+                    seq += 1
+                tr.append(
+                    _tr_record(
+                        STUDYID,
+                        uid,
+                        seq,
+                        "SUMDIAM",
+                        "Sum of Diameter",
+                        "TARGET",
+                        "",
+                        "",
+                        dtc,
+                        visitnum,
+                        visit,
+                        trdy,
+                        "",
+                        epoch,
+                        trstat="NOT DONE",
+                        trreasnd="IMAGING QUALITY ISSUES",
+                    )
+                )
+                seq += 1
                 continue
 
             # Normal visit: update each lesion
             for li in range(n_lesions):
                 new_size = current_sizes[li] + np.random.normal(drift, noise)
-                if row["RESPONDER"] and new_size <= _MIN_LESION_MM and np.random.rand() < 0.25:
-                    current_sizes[li] = 0.0   # lesion absent — CR possible
+                if (
+                    row["RESPONDER"]
+                    and new_size <= _MIN_LESION_MM
+                    and np.random.rand() < 0.25
+                ):
+                    current_sizes[li] = 0.0  # lesion absent — CR possible
                 else:
                     current_sizes[li] = max(_MIN_LESION_MM, new_size)
-                tr.append(_tr_record(
-                    STUDYID, uid, seq,
-                    "LDIAM", "Longest Diameter",
-                    f"TARGET LESION {li + 1}", f"TL{li + 1}",
-                    round(float(current_sizes[li]), 2),
-                    dtc, visitnum, visit, trdy, "", epoch,
-                )); seq += 1
+                tr.append(
+                    _tr_record(
+                        STUDYID,
+                        uid,
+                        seq,
+                        "LDIAM",
+                        "Longest Diameter",
+                        f"TARGET LESION {li + 1}",
+                        f"TL{li + 1}",
+                        round(float(current_sizes[li]), 2),
+                        dtc,
+                        visitnum,
+                        visit,
+                        trdy,
+                        "",
+                        epoch,
+                    )
+                )
+                seq += 1
 
             sumd = round(float(sum(current_sizes[:n_lesions])), 2)
-            tr.append(_tr_record(
-                STUDYID, uid, seq,
-                "SUMDIAM", "Sum of Diameter", "TARGET", "",
-                sumd, dtc, visitnum, visit, trdy, "", epoch,
-            )); seq += 1
+            tr.append(
+                _tr_record(
+                    STUDYID,
+                    uid,
+                    seq,
+                    "SUMDIAM",
+                    "Sum of Diameter",
+                    "TARGET",
+                    "",
+                    sumd,
+                    dtc,
+                    visitnum,
+                    visit,
+                    trdy,
+                    "",
+                    epoch,
+                )
+            )
+            seq += 1
 
     df = pd.DataFrame(tr)
-    return df[[
-        "STUDYID", "DOMAIN", "USUBJID", "TRSEQ", "TRGRPID", "TRLNKID",
-        "TRTESTCD", "TRTEST", "TRORRES", "TRSTRESC", "TRSTRESN", "TRSTRESU",
-        "TRSTAT", "TRREASND", "TRMETHOD", "TREVAL",
-        "TRDTC", "VISITNUM", "VISIT", "TRDY", "TRLOBXFL", "EPOCH",
-    ]]
+    return df[
+        [
+            "STUDYID",
+            "DOMAIN",
+            "USUBJID",
+            "TRSEQ",
+            "TRGRPID",
+            "TRLNKID",
+            "TRTESTCD",
+            "TRTEST",
+            "TRORRES",
+            "TRSTRESC",
+            "TRSTRESN",
+            "TRSTRESU",
+            "TRSTAT",
+            "TRREASND",
+            "TRMETHOD",
+            "TREVAL",
+            "TRDTC",
+            "VISITNUM",
+            "VISIT",
+            "TRDY",
+            "TRLOBXFL",
+            "EPOCH",
+        ]
+    ]
 
 
 # ── RS ───────────────────────────────────────────────────────────────────────
+
 
 def derive_rs(tr):
     """
@@ -503,9 +703,8 @@ def derive_rs(tr):
     )
 
     # Post-baseline SUMDIAM rows
-    post = (
-        sumdiam[sumdiam["TRLOBXFL"] != "Y"]
-        .merge(baseline_sumd.reset_index(), on="USUBJID", how="left")
+    post = sumdiam[sumdiam["TRLOBXFL"] != "Y"].merge(
+        baseline_sumd.reset_index(), on="USUBJID", how="left"
     )
 
     def _resp(row):
@@ -525,53 +724,81 @@ def derive_rs(tr):
 
     post["RSSTRESC"] = post.apply(_resp, axis=1)
 
-    rs  = []
+    rs = []
     seq = 1
     for usubjid, grp in post.groupby("USUBJID", sort=False):
         for _, row in grp.sort_values("TRDY").iterrows():
-            rs_epoch = "INDUCTION" if int(row["TRDY"]) <= _INDUCTION_DAYS else "CONTINUATION"
-            rs.append({
-                "STUDYID":  STUDYID, "DOMAIN": "RS",
-                "USUBJID":  usubjid,
-                "RSSEQ":    seq,
-                "RSTESTCD": "OVRLRESP", "RSTEST": "Overall Response",
-                "RSSTRESC": row["RSSTRESC"],
-                "RSDTC":    row["TRDTC"],
-                "VISITNUM": row["VISITNUM"],
-                "VISIT":    row["VISIT"],
-                "RSDY":     int(row["TRDY"]),
-                "EPOCH":    rs_epoch,
-                "RSDRVFL":  "Y",
-            })
+            rs_epoch = (
+                "INDUCTION" if int(row["TRDY"]) <= _INDUCTION_DAYS else "CONTINUATION"
+            )
+            rs.append(
+                {
+                    "STUDYID": STUDYID,
+                    "DOMAIN": "RS",
+                    "USUBJID": usubjid,
+                    "RSSEQ": seq,
+                    "RSTESTCD": "OVRLRESP",
+                    "RSTEST": "Overall Response",
+                    "RSSTRESC": row["RSSTRESC"],
+                    "RSDTC": row["TRDTC"],
+                    "VISITNUM": row["VISITNUM"],
+                    "VISIT": row["VISIT"],
+                    "RSDY": int(row["TRDY"]),
+                    "EPOCH": rs_epoch,
+                    "RSDRVFL": "Y",
+                }
+            )
             seq += 1
             if row["RSSTRESC"] == "PD":
                 break
 
     df = pd.DataFrame(rs)
-    df["RSCAT"]   = "TUMOR MEASUREMENT"
+    df["RSCAT"] = "TUMOR MEASUREMENT"
     df["RSORRES"] = df["RSSTRESC"]
-    return df[[
-        "STUDYID", "DOMAIN", "USUBJID", "RSSEQ", "RSTESTCD", "RSTEST",
-        "RSCAT", "RSORRES", "RSSTRESC", "RSDRVFL",
-        "RSDTC", "VISITNUM", "VISIT", "RSDY", "EPOCH",
-    ]]
+    return df[
+        [
+            "STUDYID",
+            "DOMAIN",
+            "USUBJID",
+            "RSSEQ",
+            "RSTESTCD",
+            "RSTEST",
+            "RSCAT",
+            "RSORRES",
+            "RSSTRESC",
+            "RSDRVFL",
+            "RSDTC",
+            "VISITNUM",
+            "VISIT",
+            "RSDY",
+            "EPOCH",
+        ]
+    ]
 
 
 # ── TU ───────────────────────────────────────────────────────────────────────
 
 # Common metastatic sites for HR+ breast cancer (weighted toward most frequent)
 _TU_SITES = [
-    "BONE", "BONE", "LIVER", "LIVER", "LUNG", "LUNG",
-    "LYMPH NODE", "BREAST", "SKIN", "PLEURA",
+    "BONE",
+    "BONE",
+    "LIVER",
+    "LIVER",
+    "LUNG",
+    "LUNG",
+    "LYMPH NODE",
+    "BREAST",
+    "SKIN",
+    "PLEURA",
 ]
 _TU_LAT = {
-    "BONE":        [""],
-    "LIVER":       [""],
-    "LUNG":        ["LEFT", "RIGHT", "BILATERAL"],
-    "LYMPH NODE":  ["LEFT", "RIGHT"],
-    "BREAST":      ["LEFT", "RIGHT"],
-    "SKIN":        ["LEFT", "RIGHT"],
-    "PLEURA":      ["LEFT", "RIGHT"],
+    "BONE": [""],
+    "LIVER": [""],
+    "LUNG": ["LEFT", "RIGHT", "BILATERAL"],
+    "LYMPH NODE": ["LEFT", "RIGHT"],
+    "BREAST": ["LEFT", "RIGHT"],
+    "SKIN": ["LEFT", "RIGHT"],
+    "PLEURA": ["LEFT", "RIGHT"],
 }
 
 
@@ -588,53 +815,113 @@ def create_tu(dm, tr):
     # Lesion baselines from TR (LDIAM at BASELINE visit, excludes SUMDIAM)
     ldiam_bl = tr[(tr["TRTESTCD"] == "LDIAM") & (tr["VISIT"] == "BASELINE")]
 
-    tu  = []
+    tu = []
     seq = 1
     for uid, lesions in ldiam_bl.groupby("USUBJID"):
         rfstdtc = rfstdtc_map.get(uid, "")
 
-        tu.append({
-            "STUDYID": STUDYID, "DOMAIN": "TU", "USUBJID": uid, "TUSEQ": seq,
-            "TUTESTCD": "TIND", "TUTEST": "Target Indicator",
-            "TULNKID": "", "TUORRES": "Y", "TUSTRESC": "Y",
-            "TULOC": "", "TULAT": "", "TUMETHOD": "CT SCAN", "TUEVAL": "INVESTIGATOR",
-            "EPOCH": "SCREENING", "VISITNUM": 1, "VISIT": "SCREENING",
-            "TUDTC": rfstdtc, "TUDY": 1,
-        }); seq += 1
+        tu.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "TU",
+                "USUBJID": uid,
+                "TUSEQ": seq,
+                "TUTESTCD": "TIND",
+                "TUTEST": "Target Indicator",
+                "TULNKID": "",
+                "TUORRES": "Y",
+                "TUSTRESC": "Y",
+                "TULOC": "",
+                "TULAT": "",
+                "TUMETHOD": "CT SCAN",
+                "TUEVAL": "INVESTIGATOR",
+                "EPOCH": "SCREENING",
+                "VISITNUM": 1,
+                "VISIT": "SCREENING",
+                "TUDTC": rfstdtc,
+                "TUDY": 1,
+            }
+        )
+        seq += 1
 
-        tu.append({
-            "STUDYID": STUDYID, "DOMAIN": "TU", "USUBJID": uid, "TUSEQ": seq,
-            "TUTESTCD": "NTIND", "TUTEST": "Non-Target Indicator",
-            "TULNKID": "", "TUORRES": "N", "TUSTRESC": "N",
-            "TULOC": "", "TULAT": "", "TUMETHOD": "CT SCAN", "TUEVAL": "INVESTIGATOR",
-            "EPOCH": "SCREENING", "VISITNUM": 1, "VISIT": "SCREENING",
-            "TUDTC": rfstdtc, "TUDY": 1,
-        }); seq += 1
+        tu.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "TU",
+                "USUBJID": uid,
+                "TUSEQ": seq,
+                "TUTESTCD": "NTIND",
+                "TUTEST": "Non-Target Indicator",
+                "TULNKID": "",
+                "TUORRES": "N",
+                "TUSTRESC": "N",
+                "TULOC": "",
+                "TULAT": "",
+                "TUMETHOD": "CT SCAN",
+                "TUEVAL": "INVESTIGATOR",
+                "EPOCH": "SCREENING",
+                "VISITNUM": 1,
+                "VISIT": "SCREENING",
+                "TUDTC": rfstdtc,
+                "TUDY": 1,
+            }
+        )
+        seq += 1
 
         for _, lesion in lesions.iterrows():
             loc = np.random.choice(_TU_SITES)
             lat = np.random.choice(_TU_LAT.get(loc, [""]))
-            tu.append({
-                "STUDYID": STUDYID, "DOMAIN": "TU", "USUBJID": uid, "TUSEQ": seq,
-                "TUTESTCD": "TUMIDENT", "TUTEST": "Tumor Identification",
-                "TULNKID": lesion["TRLNKID"],
-                "TUORRES": "TARGET", "TUSTRESC": "TARGET",
-                "TULOC": loc, "TULAT": lat,
-                "TUMETHOD": "CT SCAN", "TUEVAL": "INVESTIGATOR",
-                "EPOCH": "SCREENING", "VISITNUM": 1, "VISIT": "SCREENING",
-                "TUDTC": rfstdtc, "TUDY": 1,
-            }); seq += 1
+            tu.append(
+                {
+                    "STUDYID": STUDYID,
+                    "DOMAIN": "TU",
+                    "USUBJID": uid,
+                    "TUSEQ": seq,
+                    "TUTESTCD": "TUMIDENT",
+                    "TUTEST": "Tumor Identification",
+                    "TULNKID": lesion["TRLNKID"],
+                    "TUORRES": "TARGET",
+                    "TUSTRESC": "TARGET",
+                    "TULOC": loc,
+                    "TULAT": lat,
+                    "TUMETHOD": "CT SCAN",
+                    "TUEVAL": "INVESTIGATOR",
+                    "EPOCH": "SCREENING",
+                    "VISITNUM": 1,
+                    "VISIT": "SCREENING",
+                    "TUDTC": rfstdtc,
+                    "TUDY": 1,
+                }
+            )
+            seq += 1
 
     df = pd.DataFrame(tu)
-    return df[[
-        "STUDYID", "DOMAIN", "USUBJID", "TUSEQ", "TUTESTCD", "TUTEST",
-        "TULNKID", "TUORRES", "TUSTRESC", "TULOC", "TULAT",
-        "TUMETHOD", "TUEVAL",
-        "EPOCH", "VISITNUM", "VISIT", "TUDTC", "TUDY",
-    ]]
+    return df[
+        [
+            "STUDYID",
+            "DOMAIN",
+            "USUBJID",
+            "TUSEQ",
+            "TUTESTCD",
+            "TUTEST",
+            "TULNKID",
+            "TUORRES",
+            "TUSTRESC",
+            "TULOC",
+            "TULAT",
+            "TUMETHOD",
+            "TUEVAL",
+            "EPOCH",
+            "VISITNUM",
+            "VISIT",
+            "TUDTC",
+            "TUDY",
+        ]
+    ]
 
 
 # ── DS ───────────────────────────────────────────────────────────────────────
+
 
 def create_ds(dm, ex, events):
     """
@@ -668,11 +955,11 @@ def create_ds(dm, ex, events):
 
     ds = []
     for _, row in core.iterrows():
-        progdt     = row["PROGDT"]
-        has_prog   = pd.notna(progdt)
+        progdt = row["PROGDT"]
+        has_prog = pd.notna(progdt)
         withdrawal = bool(row["WITHDRAWAL"])
-        did_die    = (row["DTHFL"] == "Y")
-        arm        = row["ARMCD"]
+        did_die = row["DTHFL"] == "Y"
+        arm = row["ARMCD"]
 
         exstdtc = datetime.strptime(str(row["EXSTDTC"])[:10], "%Y-%m-%d")
         exendtc = datetime.strptime(str(row["EXENDTC"])[:10], "%Y-%m-%d")
@@ -681,21 +968,21 @@ def create_ds(dm, ex, events):
 
         if has_prog:
             stop_reason = "PROGRESSIVE DISEASE"
-            stop_dtc    = _fmt(progdt)
+            stop_dtc = _fmt(progdt)
         elif withdrawal:
             stop_reason = "WITHDRAWAL BY SUBJECT"
-            stop_dtc    = str(row["EXENDTC"])[:10]
+            stop_dtc = str(row["EXENDTC"])[:10]
         else:
             stop_reason = "LOST TO FOLLOW-UP"
-            stop_dtc    = str(row["EXENDTC"])[:10]
+            stop_dtc = str(row["EXENDTC"])[:10]
 
         # Use DM DTHDTC directly — ensures DS DEATH date = DM DTHDTC (FB0611)
         if did_die and row["DTHDTC"]:
             final_reason = "DEATH"
-            final_dtc    = str(row["DTHDTC"])[:10]
+            final_dtc = str(row["DTHDTC"])[:10]
         else:
             final_reason = stop_reason
-            final_dtc    = _fmt(row["FOLLOWUP_END"])
+            final_dtc = _fmt(row["FOLLOWUP_END"])
 
         secondary = "EVEROLIMUS" if arm == "TRT" else "PLACEBO"
         seq = 1
@@ -703,60 +990,116 @@ def create_ds(dm, ex, events):
         # 1. Informed consent
         # CG0066: DSTERM must equal DSDECOD for PROTOCOL MILESTONE records
         # FB2201: EPOCH required for all subject-level clinical observations
-        ds.append({
-            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
-            "DSSEQ": seq, "DSCAT": "PROTOCOL MILESTONE", "DSSCAT": "",
-            "DSTERM": "INFORMED CONSENT OBTAINED",
-            "DSDECOD": "INFORMED CONSENT OBTAINED",
-            "DSSTDTC": str(row["RFICDTC"])[:10], "EPOCH": "SCREENING",
-        }); seq += 1
+        ds.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "DS",
+                "USUBJID": row["USUBJID"],
+                "DSSEQ": seq,
+                "DSCAT": "PROTOCOL MILESTONE",
+                "DSSCAT": "",
+                "DSTERM": "INFORMED CONSENT OBTAINED",
+                "DSDECOD": "INFORMED CONSENT OBTAINED",
+                "DSSTDTC": str(row["RFICDTC"])[:10],
+                "EPOCH": "SCREENING",
+            }
+        )
+        seq += 1
 
         # 2. Randomization
-        ds.append({
-            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
-            "DSSEQ": seq, "DSCAT": "PROTOCOL MILESTONE", "DSSCAT": "",
-            "DSTERM": "RANDOMIZED",
-            "DSDECOD": "RANDOMIZED",
-            "DSSTDTC": str(row["RFSTDTC"])[:10], "EPOCH": "SCREENING",
-        }); seq += 1
+        ds.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "DS",
+                "USUBJID": row["USUBJID"],
+                "DSSEQ": seq,
+                "DSCAT": "PROTOCOL MILESTONE",
+                "DSSCAT": "",
+                "DSTERM": "RANDOMIZED",
+                "DSDECOD": "RANDOMIZED",
+                "DSSTDTC": str(row["RFSTDTC"])[:10],
+                "EPOCH": "SCREENING",
+            }
+        )
+        seq += 1
 
         # 3. Fulvestrant discontinuation
-        ds.append({
-            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
-            "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": "FULVESTRANT",
-            "DSTERM": stop_reason, "DSDECOD": stop_reason,
-            "DSSTDTC": stop_dtc, "EPOCH": tx_epoch,
-        }); seq += 1
+        ds.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "DS",
+                "USUBJID": row["USUBJID"],
+                "DSSEQ": seq,
+                "DSCAT": "DISPOSITION EVENT",
+                "DSSCAT": "FULVESTRANT",
+                "DSTERM": stop_reason,
+                "DSDECOD": stop_reason,
+                "DSSTDTC": stop_dtc,
+                "EPOCH": tx_epoch,
+            }
+        )
+        seq += 1
 
         # 4. Everolimus / Placebo discontinuation
-        ds.append({
-            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
-            "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": secondary,
-            "DSTERM": stop_reason, "DSDECOD": stop_reason,
-            "DSSTDTC": stop_dtc, "EPOCH": tx_epoch,
-        }); seq += 1
+        ds.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "DS",
+                "USUBJID": row["USUBJID"],
+                "DSSEQ": seq,
+                "DSCAT": "DISPOSITION EVENT",
+                "DSSCAT": secondary,
+                "DSTERM": stop_reason,
+                "DSDECOD": stop_reason,
+                "DSSTDTC": stop_dtc,
+                "EPOCH": tx_epoch,
+            }
+        )
+        seq += 1
 
         # 5. End of study participation (all subjects)
-        ds.append({
-            "STUDYID": STUDYID, "DOMAIN": "DS", "USUBJID": row["USUBJID"],
-            "DSSEQ": seq, "DSCAT": "DISPOSITION EVENT", "DSSCAT": "STUDY PARTICIPATION",
-            "DSTERM": final_reason, "DSDECOD": final_reason,
-            "DSSTDTC": final_dtc, "EPOCH": "FOLLOW-UP",
-        })
+        ds.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "DS",
+                "USUBJID": row["USUBJID"],
+                "DSSEQ": seq,
+                "DSCAT": "DISPOSITION EVENT",
+                "DSSCAT": "STUDY PARTICIPATION",
+                "DSTERM": final_reason,
+                "DSDECOD": final_reason,
+                "DSSTDTC": final_dtc,
+                "EPOCH": "FOLLOW-UP",
+            }
+        )
 
     df = pd.DataFrame(ds)
     _rfstdtc_ds = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
     df["DSSTDY"] = df.apply(
-        lambda r: _study_day(r["DSSTDTC"], _rfstdtc_ds[r["USUBJID"]]) if r["DSSTDTC"] else "",
+        lambda r: (
+            _study_day(r["DSSTDTC"], _rfstdtc_ds[r["USUBJID"]]) if r["DSSTDTC"] else ""
+        ),
         axis=1,
     )
-    return df[[
-        "STUDYID", "DOMAIN", "USUBJID", "DSSEQ", "DSCAT", "DSSCAT",
-        "DSTERM", "DSDECOD", "EPOCH", "DSSTDTC", "DSSTDY",
-    ]]
+    return df[
+        [
+            "STUDYID",
+            "DOMAIN",
+            "USUBJID",
+            "DSSEQ",
+            "DSCAT",
+            "DSSCAT",
+            "DSTERM",
+            "DSDECOD",
+            "EPOCH",
+            "DSSTDTC",
+            "DSSTDY",
+        ]
+    ]
 
 
 # ── FA ────────────────────────────────────────────────────────────────────────
+
 
 def create_fa(ds):
     """
@@ -767,25 +1110,30 @@ def create_fa(ds):
     fa_rows = []
     seq = 1
     for _, row in ds[ds["DSDECOD"].notna() & (ds["DSDECOD"] != "")].iterrows():
-        fa_rows.append({
-            "STUDYID":  STUDYID,
-            "DOMAIN":   "FA",
-            "USUBJID":  row["USUBJID"],
-            "FASEQ":    seq,
-            "_DSSEQ":   row["DSSEQ"],   # parent DS sequence; used by create_relrec, not written to CSV
-            "FATESTCD": "OCCUR",
-            "FATEST":   "Occurrence Indicator",
-            "FAOBJ":    row["DSDECOD"],
-            "FAORRES":  "Y",
-            "FASTRESC": "Y",
-            "EPOCH":    row["EPOCH"],
-            "FADTC":    row["DSSTDTC"],
-        })
+        fa_rows.append(
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "FA",
+                "USUBJID": row["USUBJID"],
+                "FASEQ": seq,
+                "_DSSEQ": row[
+                    "DSSEQ"
+                ],  # parent DS sequence; used by create_relrec, not written to CSV
+                "FATESTCD": "OCCUR",
+                "FATEST": "Occurrence Indicator",
+                "FAOBJ": row["DSDECOD"],
+                "FAORRES": "Y",
+                "FASTRESC": "Y",
+                "EPOCH": row["EPOCH"],
+                "FADTC": row["DSSTDTC"],
+            }
+        )
         seq += 1
     return pd.DataFrame(fa_rows)
 
 
 # ── RELREC ───────────────────────────────────────────────────────────────────
+
 
 def create_relrec(fa, ds):
     """
@@ -797,22 +1145,33 @@ def create_relrec(fa, ds):
     rows = []
     for rel_id, (_, fa_row) in enumerate(fa.iterrows(), start=1):
         rel_str = str(rel_id)
-        rows.append({
-            "STUDYID": STUDYID, "RDOMAIN": "FA",
-            "USUBJID": fa_row["USUBJID"],
-            "IDVAR": "FASEQ", "IDVARVAL": str(int(fa_row["FASEQ"])),
-            "RELTYPE": "", "RELID": rel_str,
-        })
-        rows.append({
-            "STUDYID": STUDYID, "RDOMAIN": "DS",
-            "USUBJID": fa_row["USUBJID"],
-            "IDVAR": "DSSEQ", "IDVARVAL": str(int(fa_row["_DSSEQ"])),
-            "RELTYPE": "", "RELID": rel_str,
-        })
+        rows.append(
+            {
+                "STUDYID": STUDYID,
+                "RDOMAIN": "FA",
+                "USUBJID": fa_row["USUBJID"],
+                "IDVAR": "FASEQ",
+                "IDVARVAL": str(int(fa_row["FASEQ"])),
+                "RELTYPE": "",
+                "RELID": rel_str,
+            }
+        )
+        rows.append(
+            {
+                "STUDYID": STUDYID,
+                "RDOMAIN": "DS",
+                "USUBJID": fa_row["USUBJID"],
+                "IDVAR": "DSSEQ",
+                "IDVARVAL": str(int(fa_row["_DSSEQ"])),
+                "RELTYPE": "",
+                "RELID": rel_str,
+            }
+        )
     return pd.DataFrame(rows)
 
 
 # ── ADSL ─────────────────────────────────────────────────────────────────────
+
 
 def _best_response(responses):
     for r in ("PR", "SD", "PD"):
@@ -832,7 +1191,7 @@ def create_adsl(dm, ex, rs, events):
 
     bestresp_map = rs.groupby("USUBJID")["RSSTRESC"].apply(_best_response).to_dict()
 
-    dm_copy        = dm.copy()
+    dm_copy = dm.copy()
     dm_copy["TRT01A"] = dm_copy["ARMCD"].map({"TRT": "Treatment", "PLC": "Placebo"})
 
     core = (
@@ -845,50 +1204,60 @@ def create_adsl(dm, ex, rs, events):
     for _, row in core.iterrows():
         progdt = row["PROGDT"]
         if pd.notna(progdt):
-            pfs    = (progdt - row["EXSTDTC"]).days
-            cnsr   = 0
+            pfs = (progdt - row["EXSTDTC"]).days
+            cnsr = 0
             dcsreas = "PROGRESSIVE DISEASE"
         else:
-            pfs    = (row["EXENDTC"] - row["EXSTDTC"]).days
-            cnsr   = 1
-            dcsreas = "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "LOST TO FOLLOW-UP"
+            pfs = (row["EXENDTC"] - row["EXSTDTC"]).days
+            cnsr = 1
+            dcsreas = (
+                "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "LOST TO FOLLOW-UP"
+            )
 
-        records.append({
-            "STUDYID":  STUDYID,
-            "USUBJID":  row["USUBJID"],
-            "TRT01P":   row["TRT01A"],   # planned = actual (no crossover in this study)
-            "TRT01A":   row["TRT01A"],
-            "AGE":      row["AGE"],
-            "PFS":      pfs,
-            "CNSR":     cnsr,
-            "BESTRESP": bestresp_map.get(row["USUBJID"], ""),
-            "DCSREAS":  dcsreas,
-            "ITTFL":    "Y",   # all randomised subjects are in the ITT population
-            "SAFFL":    "Y",   # all subjects with ≥1 treatment exposure
-            "PPROTFL":  "N" if dcsreas == "LOST TO FOLLOW-UP" else "Y",
-        })
+        records.append(
+            {
+                "STUDYID": STUDYID,
+                "USUBJID": row["USUBJID"],
+                "TRT01P": row[
+                    "TRT01A"
+                ],  # planned = actual (no crossover in this study)
+                "TRT01A": row["TRT01A"],
+                "AGE": row["AGE"],
+                "PFS": pfs,
+                "CNSR": cnsr,
+                "BESTRESP": bestresp_map.get(row["USUBJID"], ""),
+                "DCSREAS": dcsreas,
+                "ITTFL": "Y",  # all randomised subjects are in the ITT population
+                "SAFFL": "Y",  # all subjects with ≥1 treatment exposure
+                "PPROTFL": "N" if dcsreas == "LOST TO FOLLOW-UP" else "Y",
+            }
+        )
 
     return pd.DataFrame(records)
 
 
 # ── ADTTE ─────────────────────────────────────────────────────────────────────
 
+
 def create_adtte(adsl):
-    return pd.DataFrame([
-        {
-            "STUDYID": STUDYID,
-            "USUBJID": row["USUBJID"],
-            "PARAMCD": "PFS",
-            "PARAM":   "Progression-Free Survival",
-            "AVAL":    float(row["PFS"]),
-            "CNSR":    row["CNSR"],
-            "TRT01A":  row["TRT01A"],
-        }
-        for _, row in adsl.iterrows()
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "STUDYID": STUDYID,
+                "USUBJID": row["USUBJID"],
+                "PARAMCD": "PFS",
+                "PARAM": "Progression-Free Survival",
+                "AVAL": float(row["PFS"]),
+                "CNSR": row["CNSR"],
+                "TRT01A": row["TRT01A"],
+            }
+            for _, row in adsl.iterrows()
+        ]
+    )
 
 
 # ── TV ────────────────────────────────────────────────────────────────────────
+
 
 def create_tv():
     """
@@ -900,24 +1269,34 @@ def create_tv():
     # END OF TREATMENT is excluded — it has no defined planned study day and
     # TVSTRL would be null, violating CORE-000356 (required variable null).
     visits = [
-        (1, "SCREENING",  -14, -14, 0,   "SCREENING"),
-        (2, "BASELINE",     1,   1, 1,   "INDUCTION"),
+        (1, "SCREENING", -14, -14, 0, "SCREENING"),
+        (2, "BASELINE", 1, 1, 1, "INDUCTION"),
     ]
     for v, day in enumerate(range(85, 1500, 84), start=1):
         epoch = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
         visits.append((v + 2, f"WEEK {v * 12}", day, day, day, epoch))
 
-    return pd.DataFrame([
-        {
-            "STUDYID": STUDYID, "DOMAIN": "TV",
-            "VISITNUM": vn, "VISIT": v, "VISITDY": vd,
-            "ARMCD": "", "ARM": "", "TVSTRL": s, "TVENRL": e, "EPOCH": ep,
-        }
-        for vn, v, vd, s, e, ep in visits
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "TV",
+                "VISITNUM": vn,
+                "VISIT": v,
+                "VISITDY": vd,
+                "ARMCD": "",
+                "ARM": "",
+                "TVSTRL": s,
+                "TVENRL": e,
+                "EPOCH": ep,
+            }
+            for vn, v, vd, s, e, ep in visits
+        ]
+    )
 
 
 # ── TA ────────────────────────────────────────────────────────────────────────
+
 
 def create_ta():
     """
@@ -931,30 +1310,58 @@ def create_ta():
     """
     rows = []
     for armcd, arm, ind_etcd, ind_el, cont_etcd, cont_el in [
-        ("TRT", "Fulvestrant + Everolimus",
-         "INDA",  "Fulvestrant + Everolimus",
-         "CONTA", "Fulvestrant + Everolimus"),
-        ("PLC", "Fulvestrant + Placebo",
-         "INDB",  "Fulvestrant + Placebo",
-         "CONTB", "Fulvestrant"),
+        (
+            "TRT",
+            "Fulvestrant + Everolimus",
+            "INDA",
+            "Fulvestrant + Everolimus",
+            "CONTA",
+            "Fulvestrant + Everolimus",
+        ),
+        (
+            "PLC",
+            "Fulvestrant + Placebo",
+            "INDB",
+            "Fulvestrant + Placebo",
+            "CONTB",
+            "Fulvestrant",
+        ),
     ]:
         epochs = [
-            (1, "SCRN",     "Screen",    "",  "Subject randomised",                              "SCREENING"),
-            (2, ind_etcd,   ind_el,      "",  "If PD or unacceptable toxicity, go to Follow-Up", "INDUCTION"),
-            (3, cont_etcd,  cont_el,     "",  "If PD or unacceptable toxicity, go to Follow-Up", "CONTINUATION"),
-            (4, "FLWP",     "Follow-Up", "",  "",                                                "FOLLOW-UP"),
+            (1, "SCRN", "Screen", "", "Subject randomised", "SCREENING"),
+            (
+                2,
+                ind_etcd,
+                ind_el,
+                "",
+                "If PD or unacceptable toxicity, go to Follow-Up",
+                "INDUCTION",
+            ),
+            (
+                3,
+                cont_etcd,
+                cont_el,
+                "",
+                "If PD or unacceptable toxicity, go to Follow-Up",
+                "CONTINUATION",
+            ),
+            (4, "FLWP", "Follow-Up", "", "", "FOLLOW-UP"),
         ]
         for taetord, etcd, element, tabranch, tatrans, epoch in epochs:
-            rows.append({
-                "STUDYID":  STUDYID, "DOMAIN": "TA",
-                "ARMCD":    armcd,   "ARM": arm,
-                "TAETORD":  taetord,
-                "ETCD":     etcd,
-                "ELEMENT":  element,
-                "TABRANCH": tabranch,
-                "TATRANS":  tatrans,
-                "EPOCH":    epoch,
-            })
+            rows.append(
+                {
+                    "STUDYID": STUDYID,
+                    "DOMAIN": "TA",
+                    "ARMCD": armcd,
+                    "ARM": arm,
+                    "TAETORD": taetord,
+                    "ETCD": etcd,
+                    "ELEMENT": element,
+                    "TABRANCH": tabranch,
+                    "TATRANS": tatrans,
+                    "EPOCH": epoch,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -966,29 +1373,39 @@ if __name__ == "__main__":
     out_dir = os.path.join(os.path.dirname(__file__), "..", "datasets")
     os.makedirs(out_dir, exist_ok=True)
 
-    dm      = create_dm(n=200)
-    ex      = create_ex(dm)
-    events  = derive_events(ex, dm)
-    ex      = finalize_ex(ex, events, dm)      # cap EX dates at progression
-    tr      = create_tr(ex, events, dm)        # needs TRT01A; run before finalize_dm
-    rs      = derive_rs(tr)
-    tu      = create_tu(dm, tr)                # tumor identification; needs TR baselines
-    dm      = finalize_dm(dm, ex, events)
-    ds      = create_ds(dm, ex, events)
-    fa      = create_fa(ds)                    # findings about DS disposition events
-    relrec  = create_relrec(fa, ds)            # links FA records to parent DS records (CG0603)
-    adsl    = create_adsl(dm, ex, rs, events)
-    adtte   = create_adtte(adsl)
-    tv      = create_tv()
-    ta      = create_ta()
+    dm = create_dm(n=200)
+    ex = create_ex(dm)
+    events = derive_events(ex, dm)
+    ex = finalize_ex(ex, events, dm)  # cap EX dates at progression
+    tr = create_tr(ex, events, dm)  # needs TRT01A; run before finalize_dm
+    rs = derive_rs(tr)
+    tu = create_tu(dm, tr)  # tumor identification; needs TR baselines
+    dm = finalize_dm(dm, ex, events)
+    ds = create_ds(dm, ex, events)
+    fa = create_fa(ds)  # findings about DS disposition events
+    relrec = create_relrec(fa, ds)  # links FA records to parent DS records (CG0603)
+    adsl = create_adsl(dm, ex, rs, events)
+    adtte = create_adtte(adsl)
+    tv = create_tv()
+    ta = create_ta()
 
     for name, df in [
-        ("DM", dm), ("EX", ex), ("TU", tu), ("TR", tr), ("RS", rs), ("DS", ds),
-        ("FA", fa), ("RELREC", relrec), ("ADSL", adsl), ("ADTTE", adtte), ("TV", tv), ("TA", ta),
+        ("DM", dm),
+        ("EX", ex),
+        ("TU", tu),
+        ("TR", tr),
+        ("RS", rs),
+        ("DS", ds),
+        ("FA", fa),
+        ("RELREC", relrec),
+        ("ADSL", adsl),
+        ("ADTTE", adtte),
+        ("TV", tv),
+        ("TA", ta),
     ]:
         # Strip internal helper columns not written to CSV
         drop_cols = {"DM": ["TRT01A"], "FA": ["_DSSEQ"]}.get(name, [])
         out_df = df.drop(columns=drop_cols, errors="ignore")
-        path   = os.path.join(out_dir, f"{name}.csv")
+        path = os.path.join(out_dir, f"{name}.csv")
         out_df.to_csv(path, index=False)
         print(f"Wrote {name}.csv  ({len(out_df)} rows)")
