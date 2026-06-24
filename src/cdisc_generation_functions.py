@@ -68,10 +68,7 @@ def create_dm(n=200):
 
     # RFICDTC: informed consent 7–28 days before first study activity (RFSTDTC)
     ic_offsets = np.random.randint(7, 29, size=n)
-    rficdtc = [
-        (d - timedelta(days=int(ic))).strftime("%Y-%m-%d")
-        for d, ic in zip(rfstdtc_dates, ic_offsets)
-    ]
+    rficdtc = [(d - timedelta(days=int(ic))).strftime("%Y-%m-%d") for d, ic in zip(rfstdtc_dates, ic_offsets)]
     rfstdtc = [d.strftime("%Y-%m-%d") for d in rfstdtc_dates]
 
     _race = np.random.choice(
@@ -97,14 +94,7 @@ def create_dm(n=200):
             "RFSTDTC": rfstdtc,
             "TRT01A": arms,  # internal helper; excluded from CSV DM output
             "ARMCD": ["TRT" if a == "Treatment" else "PLC" for a in arms],
-            "ARM": [
-                (
-                    "Fulvestrant + Everolimus"
-                    if a == "Treatment"
-                    else "Fulvestrant + Placebo"
-                )
-                for a in arms
-            ],
+            "ARM": [("Fulvestrant + Everolimus" if a == "Treatment" else "Fulvestrant + Placebo") for a in arms],
         }
     )
     dm["STUDYID"] = STUDYID
@@ -125,15 +115,9 @@ def finalize_dm(dm, ex, events):
     DTHDTC is constrained to be after RFXENDTC: a subject cannot die
     while still receiving treatment.
     """
-    rfx = (
-        ex.groupby("USUBJID")
-        .agg(RFXSTDTC=("EXSTDTC", "min"), RFXENDTC=("EXENDTC", "max"))
-        .reset_index()
-    )
+    rfx = ex.groupby("USUBJID").agg(RFXSTDTC=("EXSTDTC", "min"), RFXENDTC=("EXENDTC", "max")).reset_index()
     dm = dm.merge(rfx, on="USUBJID", how="left")
-    dm = dm.merge(
-        events[["USUBJID", "DIED", "DTHDT", "FOLLOWUP_END"]], on="USUBJID", how="left"
-    )
+    dm = dm.merge(events[["USUBJID", "DIED", "DTHDT", "FOLLOWUP_END"]], on="USUBJID", how="left")
 
     dm["DTHFL"] = dm["DIED"].map({True: "Y"}).fillna("")
 
@@ -150,11 +134,7 @@ def finalize_dm(dm, ex, events):
 
     dm["DTHDTC"] = dm.apply(_safe_dthdtc, axis=1)
     dm["RFPENDTC"] = dm.apply(
-        lambda r: (
-            r["DTHDTC"]
-            if (r["DTHFL"] == "Y" and r["DTHDTC"])
-            else _fmt(r["FOLLOWUP_END"])
-        ),
+        lambda r: (r["DTHDTC"] if (r["DTHFL"] == "Y" and r["DTHDTC"]) else _fmt(r["FOLLOWUP_END"])),
         axis=1,
     )
     # CG0142: RFENDTC required for all treated subjects; equals RFPENDTC in this study
@@ -282,10 +262,7 @@ def finalize_ex(ex, events, dm):
     """
     rfstdtc_map = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
     prog_map = (
-        events.dropna(subset=["PROGDT"])
-        .set_index("USUBJID")["PROGDT"]
-        .apply(lambda x: pd.Timestamp(x))
-        .to_dict()
+        events.dropna(subset=["PROGDT"]).set_index("USUBJID")["PROGDT"].apply(lambda x: pd.Timestamp(x)).to_dict()
     )
 
     ex = ex.copy()
@@ -336,9 +313,7 @@ def derive_events(ex, dm):
         else:
             progdt = None
         responder = np.random.rand() < _TUMOUR[arm]["resp_frac"]
-        records.append(
-            {"USUBJID": row["USUBJID"], "PROGDT": progdt, "RESPONDER": responder}
-        )
+        records.append({"USUBJID": row["USUBJID"], "PROGDT": progdt, "RESPONDER": responder})
 
     events = pd.DataFrame(records)
     no_prog = events["PROGDT"].isna()
@@ -364,9 +339,7 @@ def derive_events(ex, dm):
             else:
                 died_list.append(False)
                 dthdt_list.append(None)
-                fu_end = min(
-                    tx_end + timedelta(days=int(np.random.uniform(30, 180))), _STUDY_END
-                )
+                fu_end = min(tx_end + timedelta(days=int(np.random.uniform(30, 180))), _STUDY_END)
                 followup_list.append(fu_end)
         elif withdrawal:
             if np.random.rand() < 0.15:
@@ -378,15 +351,11 @@ def derive_events(ex, dm):
             else:
                 died_list.append(False)
                 dthdt_list.append(None)
-                followup_list.append(
-                    tx_end
-                )  # withdrew, participation ends with treatment
+                followup_list.append(tx_end)  # withdrew, participation ends with treatment
         else:
             died_list.append(False)
             dthdt_list.append(None)
-            fu_end = min(
-                tx_end + timedelta(days=int(np.random.uniform(30, 120))), _STUDY_END
-            )
+            fu_end = min(tx_end + timedelta(days=int(np.random.uniform(30, 120))), _STUDY_END)
             followup_list.append(fu_end)
 
     events["DIED"] = died_list
@@ -397,9 +366,7 @@ def derive_events(ex, dm):
 
 # ── TR ───────────────────────────────────────────────────────────────────────
 
-_NE_PROB = (
-    0.03  # probability that any individual post-baseline assessment is not evaluable
-)
+_NE_PROB = 0.03  # probability that any individual post-baseline assessment is not evaluable
 
 
 def _tr_record(
@@ -467,9 +434,7 @@ def create_tr(ex, events, dm):
     ex_starts = ex.groupby("USUBJID")["EXSTDTC"].min().reset_index()
     ex_starts["EXSTDTC"] = pd.to_datetime(ex_starts["EXSTDTC"])
     ex_end_map = pd.to_datetime(ex.groupby("USUBJID")["EXENDTC"].max()).to_dict()
-    merged = ex_starts.merge(events[["USUBJID", "PROGDT", "RESPONDER"]]).merge(
-        dm[["USUBJID", "TRT01A", "RFSTDTC"]]
-    )
+    merged = ex_starts.merge(events[["USUBJID", "PROGDT", "RESPONDER"]]).merge(dm[["USUBJID", "TRT01A", "RFSTDTC"]])
 
     for _, row in merged.iterrows():
         uid = row["USUBJID"]
@@ -595,11 +560,7 @@ def create_tr(ex, events, dm):
             # Normal visit: update each lesion
             for li in range(n_lesions):
                 new_size = current_sizes[li] + np.random.normal(drift, noise)
-                if (
-                    row["RESPONDER"]
-                    and new_size <= _MIN_LESION_MM
-                    and np.random.rand() < 0.25
-                ):
+                if row["RESPONDER"] and new_size <= _MIN_LESION_MM and np.random.rand() < 0.25:
                     current_sizes[li] = 0.0  # lesion absent — CR possible
                 else:
                     current_sizes[li] = max(_MIN_LESION_MM, new_size)
@@ -696,16 +657,10 @@ def derive_rs(tr):
     sumdiam = tr[tr["TRTESTCD"] == "SUMDIAM"].copy()
 
     # Baseline SUMDIAM (LOBXFL=Y)
-    baseline_sumd = (
-        sumdiam[sumdiam["TRLOBXFL"] == "Y"]
-        .set_index("USUBJID")["TRSTRESN"]
-        .rename("BASE_SUMD")
-    )
+    baseline_sumd = sumdiam[sumdiam["TRLOBXFL"] == "Y"].set_index("USUBJID")["TRSTRESN"].rename("BASE_SUMD")
 
     # Post-baseline SUMDIAM rows
-    post = sumdiam[sumdiam["TRLOBXFL"] != "Y"].merge(
-        baseline_sumd.reset_index(), on="USUBJID", how="left"
-    )
+    post = sumdiam[sumdiam["TRLOBXFL"] != "Y"].merge(baseline_sumd.reset_index(), on="USUBJID", how="left")
 
     def _resp(row):
         if row.get("TRSTAT", "") == "NOT DONE" or pd.isna(row["TRSTRESN"]):
@@ -728,9 +683,7 @@ def derive_rs(tr):
     seq = 1
     for usubjid, grp in post.groupby("USUBJID", sort=False):
         for _, row in grp.sort_values("TRDY").iterrows():
-            rs_epoch = (
-                "INDUCTION" if int(row["TRDY"]) <= _INDUCTION_DAYS else "CONTINUATION"
-            )
+            rs_epoch = "INDUCTION" if int(row["TRDY"]) <= _INDUCTION_DAYS else "CONTINUATION"
             rs.append(
                 {
                     "STUDYID": STUDYID,
@@ -937,11 +890,7 @@ def create_ds(dm, ex, events):
       INDUCTION   if treatment duration ≤ 336 days (12 × 28)
       CONTINUATION if treatment duration  > 336 days
     """
-    ex_dates = (
-        ex.groupby("USUBJID")
-        .agg(EXSTDTC=("EXSTDTC", "min"), EXENDTC=("EXENDTC", "max"))
-        .reset_index()
-    )
+    ex_dates = ex.groupby("USUBJID").agg(EXSTDTC=("EXSTDTC", "min"), EXENDTC=("EXENDTC", "max")).reset_index()
     # Use finalized DM for DTHFL/DTHDTC so DS DEATH date matches DM exactly (FB0611)
     core = (
         dm[["USUBJID", "RFICDTC", "RFSTDTC", "ARMCD", "DTHFL", "DTHDTC"]]
@@ -1076,9 +1025,7 @@ def create_ds(dm, ex, events):
     df = pd.DataFrame(ds)
     _rfstdtc_ds = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
     df["DSSTDY"] = df.apply(
-        lambda r: (
-            _study_day(r["DSSTDTC"], _rfstdtc_ds[r["USUBJID"]]) if r["DSSTDTC"] else ""
-        ),
+        lambda r: (_study_day(r["DSSTDTC"], _rfstdtc_ds[r["USUBJID"]]) if r["DSSTDTC"] else ""),
         axis=1,
     )
     return df[
@@ -1116,9 +1063,7 @@ def create_fa(ds):
                 "DOMAIN": "FA",
                 "USUBJID": row["USUBJID"],
                 "FASEQ": seq,
-                "_DSSEQ": row[
-                    "DSSEQ"
-                ],  # parent DS sequence; used by create_relrec, not written to CSV
+                "_DSSEQ": row["DSSEQ"],  # parent DS sequence; used by create_relrec, not written to CSV
                 "FATESTCD": "OCCUR",
                 "FATEST": "Occurrence Indicator",
                 "FAOBJ": row["DSDECOD"],
@@ -1181,11 +1126,7 @@ def _best_response(responses):
 
 
 def create_adsl(dm, ex, rs, events):
-    ex_dates = (
-        ex.groupby("USUBJID")
-        .agg(EXSTDTC=("EXSTDTC", "min"), EXENDTC=("EXENDTC", "max"))
-        .reset_index()
-    )
+    ex_dates = ex.groupby("USUBJID").agg(EXSTDTC=("EXSTDTC", "min"), EXENDTC=("EXENDTC", "max")).reset_index()
     ex_dates["EXSTDTC"] = pd.to_datetime(ex_dates["EXSTDTC"])
     ex_dates["EXENDTC"] = pd.to_datetime(ex_dates["EXENDTC"])
 
@@ -1210,17 +1151,13 @@ def create_adsl(dm, ex, rs, events):
         else:
             pfs = (row["EXENDTC"] - row["EXSTDTC"]).days
             cnsr = 1
-            dcsreas = (
-                "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "LOST TO FOLLOW-UP"
-            )
+            dcsreas = "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "LOST TO FOLLOW-UP"
 
         records.append(
             {
                 "STUDYID": STUDYID,
                 "USUBJID": row["USUBJID"],
-                "TRT01P": row[
-                    "TRT01A"
-                ],  # planned = actual (no crossover in this study)
+                "TRT01P": row["TRT01A"],  # planned = actual (no crossover in this study)
                 "TRT01A": row["TRT01A"],
                 "AGE": row["AGE"],
                 "PFS": pfs,

@@ -189,9 +189,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         "TREVAL" in tr.columns and (tr["TREVAL"] == "INVESTIGATOR").all(),
     )
     # SUMDIAM records: one baseline per subject, TRGRPID=TARGET
-    sumdiam = (
-        tr[tr["TRTESTCD"] == "SUMDIAM"] if "TRTESTCD" in tr.columns else pd.DataFrame()
-    )
+    sumdiam = tr[tr["TRTESTCD"] == "SUMDIAM"] if "TRTESTCD" in tr.columns else pd.DataFrame()
     _check(r, "TR: SUMDIAM records present (RECIST supplement)", len(sumdiam) > 0)
     if len(sumdiam):
         bl_sumd = sumdiam[sumdiam["LOBXFL"] == "Y"]
@@ -200,15 +198,10 @@ def check_structural(datasets: Path) -> list[CheckResult]:
             "TR: exactly one baseline SUMDIAM per subject",
             bl_sumd.groupby("USUBJID").size().eq(1).all(),
         )
-        _check(
-            r, "TR: SUMDIAM TRGRPID = TARGET", (sumdiam["TRGRPID"] == "TARGET").all()
-        )
+        _check(r, "TR: SUMDIAM TRGRPID = TARGET", (sumdiam["TRGRPID"] == "TARGET").all())
     # TRSTRESN ≥ 5 mm for evaluable LDIAM records (NOT DONE records may be empty)
     ldiam_eval = (
-        tr[
-            (tr["TRTESTCD"] == "LDIAM")
-            & (tr.get("TRSTAT", pd.Series([""])) != "NOT DONE")
-        ]
+        tr[(tr["TRTESTCD"] == "LDIAM") & (tr.get("TRSTAT", pd.Series([""])) != "NOT DONE")]
         if "TRSTAT" in tr.columns
         else tr[tr["TRTESTCD"] == "LDIAM"]
     )
@@ -286,11 +279,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         r,
         "DS: DSTERM present",
         "DSTERM" in ds.columns and (ds["DSTERM"].str.strip() != "").all(),
-        (
-            f"{(ds['DSTERM'].str.strip() == '').sum()} empty"
-            if "DSTERM" in ds.columns
-            else "column missing"
-        ),
+        (f"{(ds['DSTERM'].str.strip() == '').sum()} empty" if "DSTERM" in ds.columns else "column missing"),
     )
     if "DSTERM" in ds.columns:
         pm_mismatch = (pm["DSTERM"] != pm["DSDECOD"]).sum()
@@ -301,9 +290,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
             f"{pm_mismatch} mismatches",
         )
     # FB0611: DS DEATH record DSDTC must equal DM DTHDTC
-    death_ds = ds[ds["DSDECOD"] == "DEATH"][["USUBJID", "DSDTC"]].rename(
-        columns={"DSDTC": "_ds_dtc"}
-    )
+    death_ds = ds[ds["DSDECOD"] == "DEATH"][["USUBJID", "DSDTC"]].rename(columns={"DSDTC": "_ds_dtc"})
     if len(death_ds):
         dm_death = dm[dm["DTHFL"] == "Y"][["USUBJID", "DTHDTC"]]
         merged_d = death_ds.merge(dm_death, on="USUBJID", how="left")
@@ -365,11 +352,7 @@ def check_integrity(datasets: Path) -> list[CheckResult]:
 
     dm_ids = set(dm["USUBJID"])
 
-    tu = (
-        _load(datasets, "TU")
-        if (datasets / "TU.csv").exists()
-        else pd.DataFrame(columns=["USUBJID"])
-    )
+    tu = _load(datasets, "TU") if (datasets / "TU.csv").exists() else pd.DataFrame(columns=["USUBJID"])
     for name, df in [
         ("EX", ex),
         ("TR", tr),
@@ -462,9 +445,7 @@ def check_integrity(datasets: Path) -> list[CheckResult]:
     )
 
     # ADSL TRT01A consistency with DM ARMCD
-    arm_map = dm.set_index("USUBJID")["ARMCD"].map(
-        {"TRT": "Treatment", "PLC": "Placebo"}
-    )
+    arm_map = dm.set_index("USUBJID")["ARMCD"].map({"TRT": "Treatment", "PLC": "Placebo"})
     adsl_indexed = adsl.set_index("USUBJID")["TRT01A"]
     common = arm_map.index.intersection(adsl_indexed.index)
     mismatched = (arm_map.loc[common] != adsl_indexed.loc[common]).sum()
@@ -491,11 +472,7 @@ def check_recist(datasets: Path) -> list[CheckResult]:
     # Every RS USUBJID must have a baseline SUMDIAM in TR
     rs_ids = set(rs["USUBJID"])
     sumd_bl_ids = (
-        set(
-            tr[(tr.get("TRTESTCD", pd.Series()) == "SUMDIAM") & (tr["LOBXFL"] == "Y")][
-                "USUBJID"
-            ]
-        )
+        set(tr[(tr.get("TRTESTCD", pd.Series()) == "SUMDIAM") & (tr["LOBXFL"] == "Y")]["USUBJID"])
         if "TRTESTCD" in tr.columns
         else set(tr[tr["LOBXFL"] == "Y"]["USUBJID"])
     )
@@ -508,11 +485,7 @@ def check_recist(datasets: Path) -> list[CheckResult]:
     )
 
     # TU domain: all DM subjects should have TU records
-    tu = (
-        _load(datasets, "TU")
-        if (datasets / "TU.csv").exists()
-        else pd.DataFrame(columns=["USUBJID"])
-    )
+    tu = _load(datasets, "TU") if (datasets / "TU.csv").exists() else pd.DataFrame(columns=["USUBJID"])
     if len(tu):
         tu_ids = set(tu["USUBJID"])
         dm_ids_local = set(tr["USUBJID"])  # use TR subjects as proxy (all treated)
@@ -529,11 +502,7 @@ def check_recist(datasets: Path) -> list[CheckResult]:
             tu["TUTESTCD"].isin({"TIND", "NTIND", "TUMIDENT"}).all(),
         )
         tumident = tu[tu["TUTESTCD"] == "TUMIDENT"]
-        tr_lnkids = (
-            set(tr[tr["TRTESTCD"] == "LDIAM"]["TRLNKID"].unique())
-            if "TRTESTCD" in tr.columns
-            else set()
-        )
+        tr_lnkids = set(tr[tr["TRTESTCD"] == "LDIAM"]["TRLNKID"].unique()) if "TRTESTCD" in tr.columns else set()
         orphan_tu = (~tumident["TULNKID"].isin(tr_lnkids)).sum()
         _check(
             r,
@@ -544,9 +513,7 @@ def check_recist(datasets: Path) -> list[CheckResult]:
 
     # RS dates should match a TR assessment date for that subject
     tr_date_keys = set(zip(tr["USUBJID"], tr["TRDTC"]))
-    unmatched = [
-        (u, d) for u, d in zip(rs["USUBJID"], rs["RSDTC"]) if (u, d) not in tr_date_keys
-    ]
+    unmatched = [(u, d) for u, d in zip(rs["USUBJID"], rs["RSDTC"]) if (u, d) not in tr_date_keys]
     _check(
         r,
         "RS: every response date matches a TR assessment date",
@@ -565,11 +532,7 @@ def check_recist(datasets: Path) -> list[CheckResult]:
     )
 
     # RECIST consistency: use SUMDIAM records from TR (the authoritative aggregate)
-    sumdiam = (
-        tr[tr["TRTESTCD"] == "SUMDIAM"].copy()
-        if "TRTESTCD" in tr.columns
-        else pd.DataFrame()
-    )
+    sumdiam = tr[tr["TRTESTCD"] == "SUMDIAM"].copy() if "TRTESTCD" in tr.columns else pd.DataFrame()
     if len(sumdiam) == 0:
         _check(
             r,
@@ -580,9 +543,7 @@ def check_recist(datasets: Path) -> list[CheckResult]:
     else:
         bl_sumd = sumdiam[sumdiam["LOBXFL"] == "Y"].set_index("USUBJID")["TRSTRESN"]
         post_sumd = sumdiam[sumdiam["LOBXFL"] != "Y"].copy()
-        post_sumd = post_sumd.merge(
-            bl_sumd.rename("BASE_SUMD").reset_index(), on="USUBJID", how="left"
-        )
+        post_sumd = post_sumd.merge(bl_sumd.rename("BASE_SUMD").reset_index(), on="USUBJID", how="left")
         post_sumd = post_sumd.dropna(subset=["BASE_SUMD"])
 
         def _exp_resp(row):
@@ -671,9 +632,7 @@ def check_timeline_death(datasets: Path) -> list[CheckResult]:
 
     tr_dt = dt(tr["TRDTC"])
     bad_tr = (tr_dt < tr["USUBJID"].map(rfst_map)).sum()
-    _check(
-        r, "TR: TRDTC ≥ RFSTDTC", bad_tr == 0, f"{bad_tr} records before study start"
-    )
+    _check(r, "TR: TRDTC ≥ RFSTDTC", bad_tr == 0, f"{bad_tr} records before study start")
 
     bad_rfxend = (dt(dm["RFXENDTC"]) < dt(dm["RFSTDTC"])).sum()
     _check(
@@ -802,8 +761,7 @@ def check_population(datasets: Path) -> list[CheckResult]:
     )
 
     enroll_span = (
-        pd.to_datetime(dm["RFSTDTC"], errors="coerce").max()
-        - pd.to_datetime(dm["RFSTDTC"], errors="coerce").min()
+        pd.to_datetime(dm["RFSTDTC"], errors="coerce").max() - pd.to_datetime(dm["RFSTDTC"], errors="coerce").min()
     ).days
     _check(
         r,
@@ -937,9 +895,7 @@ def check_pfs_fidelity(datasets: Path) -> list[CheckResult]:
 # ── report ───────────────────────────────────────────────────────────────────
 
 
-def build_report(
-    datasets: Path, categories: dict[str, list[CheckResult]], n_subjects: int
-) -> str:
+def build_report(datasets: Path, categories: dict[str, list[CheckResult]], n_subjects: int) -> str:
     lines: list[str] = []
     lines.append("# Synthetic Dataset Validation Report")
     lines.append(f"**Study:** {STUDYID}  ")
@@ -967,9 +923,7 @@ def build_report(
         lines.append(f"| {name} | {n} | {p} | {f} |")
     overall = total_failed == 0
     verdict = "**PASS ✓**" if overall else "**FAIL ✗**"
-    lines.append(
-        f"| **Total** | **{total_checks}** | **{total_passed}** | **{total_failed}** |"
-    )
+    lines.append(f"| **Total** | **{total_checks}** | **{total_passed}** | **{total_failed}** |")
     lines.append("")
     lines.append(f"**Overall: {verdict}**")
     lines.append("")
@@ -985,12 +939,8 @@ def build_report(
     lines.append("")
     lines.append("### PFS Fidelity Detail")
     lines.append("")
-    lines.append(
-        "| Arm | Observed Median (days) | Target (days) | Tolerance | Deviation | Result |"
-    )
-    lines.append(
-        "|-----|------------------------|---------------|-----------|-----------|--------|"
-    )
+    lines.append("| Arm | Observed Median (days) | Target (days) | Tolerance | Deviation | Result |")
+    lines.append("|-----|------------------------|---------------|-----------|-----------|--------|")
     for res in categories.get("Category 7 — PFS Fidelity", []):
         if "observed=" in res.detail:
             # Strip trailing unit suffixes from values only, not from key names.
@@ -1020,9 +970,7 @@ def main():
         default="./datasets",
         help="Path to directory containing CSV files",
     )
-    parser.add_argument(
-        "--output", default="validation_report.md", help="Output markdown report path"
-    )
+    parser.add_argument("--output", default="validation_report.md", help="Output markdown report path")
     args = parser.parse_args()
 
     datasets = Path(args.datasets).resolve()
@@ -1042,9 +990,7 @@ def main():
         "Category 3 — RECIST Derivation": check_recist(datasets),
         "Category 4 — Timeline & Death Logic": check_timeline_death(datasets),
         "Category 5 — Population Distribution": check_population(datasets),
-        "Category 6 — Duplicate & Study Consistency": check_duplicates_and_coverage(
-            datasets
-        ),
+        "Category 6 — Duplicate & Study Consistency": check_duplicates_and_coverage(datasets),
         "Category 7 — PFS Fidelity": check_pfs_fidelity(datasets),
     }
 
@@ -1054,9 +1000,7 @@ def main():
     out_path.write_text(report)
     print(f"Report written to: {out_path}")
 
-    total_failed = sum(
-        1 for results in categories.values() for res in results if not res.passed
-    )
+    total_failed = sum(1 for results in categories.values() for res in results if not res.passed)
     total = sum(len(v) for v in categories.values())
     print(f"Result: {total - total_failed}/{total} checks passed")
 
