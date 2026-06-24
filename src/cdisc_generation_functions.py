@@ -938,7 +938,7 @@ def create_ds(dm, ex, events):
 
         # 1. Informed consent
         # CG0066: DSTERM must equal DSDECOD for PROTOCOL MILESTONE records
-        # FB2201: EPOCH required for all subject-level clinical observations
+        # CG0073: EPOCH must be empty for PROTOCOL MILESTONE records
         ds.append(
             {
                 "STUDYID": STUDYID,
