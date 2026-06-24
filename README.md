@@ -83,7 +83,7 @@ bc-supporting-synthetic-data/
 | `RSSTRESC` | RECIST 1.1 response — `CR`, `PR`, `SD`, `PD`, or `NE` |
 | `AVAL` | Analysis value (days to progression or censoring) in ADTTE |
 | `CNSR` | Censoring flag — `0` = progression event, `1` = censored |
-| `LOBXFL` | Last observation before exposure flag (baseline) in TR |
+| `TRLOBXFL` | Last observation before exposure flag (baseline) in TR |
 | `TRLNKID` | Links TR lesion records to TU tumor identification records |
 
 ---
@@ -196,7 +196,7 @@ ln -s "$(pwd)/skills/validate-synth-data" ~/.claude/skills/validate-synth-data
 ```bash
 claude  # from the project root
 ```
-When Claude starts, issue the command:
+In the Claude session, run:
 
 ```
 /init
