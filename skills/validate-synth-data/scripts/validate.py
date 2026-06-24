@@ -192,7 +192,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
     sumdiam = tr[tr["TRTESTCD"] == "SUMDIAM"] if "TRTESTCD" in tr.columns else pd.DataFrame()
     _check(r, "TR: SUMDIAM records present (RECIST supplement)", len(sumdiam) > 0)
     if len(sumdiam):
-        bl_sumd = sumdiam[sumdiam["LOBXFL"] == "Y"]
+        bl_sumd = sumdiam[sumdiam["TRLOBXFL"] == "Y"]
         _check(
             r,
             "TR: exactly one baseline SUMDIAM per subject",
