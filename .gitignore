@@ -20,8 +20,6 @@ build/
 .idea/
 
 # Claude Code
-.claude/
-memory/
 
-# CDISC CORE conformance reports
-CORE-Report-*.xlsx
+
+
