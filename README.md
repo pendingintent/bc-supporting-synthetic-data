@@ -42,7 +42,6 @@ bc-supporting-synthetic-data/
 │   ├── NCT01797120-results.md          # Human-readable results summary
 │   └── NCT01797120-results.fhir.json   # FHIR EBM bundle of published results
 ├── .pre-commit-config.yaml             # Pre-commit hooks (black, flake8)
-├── CLAUDE.md                           # AI assistant project instructions
 ├── ONBOARDING.md                       # Onboarding guide for new contributors
 ├── requirements.txt                    # Python dependencies
 ├── setup.cfg                           # Flake8 and black configuration (max-line-length=120)
