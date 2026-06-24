@@ -289,8 +289,8 @@ def check_structural(datasets: Path) -> list[CheckResult]:
             pm_mismatch == 0,
             f"{pm_mismatch} mismatches",
         )
-    # FB0611: DS DEATH record DSDTC must equal DM DTHDTC
-    death_ds = ds[ds["DSDECOD"] == "DEATH"][["USUBJID", "DSDTC"]].rename(columns={"DSDTC": "_ds_dtc"})
+    # FB0611: DS DEATH record DSSTDTC must equal DM DTHDTC
+    death_ds = ds[ds["DSDECOD"] == "DEATH"][["USUBJID", "DSSTDTC"]].rename(columns={"DSSTDTC": "_ds_dtc"})
     if len(death_ds):
         dm_death = dm[dm["DTHFL"] == "Y"][["USUBJID", "DTHDTC"]]
         merged_d = death_ds.merge(dm_death, on="USUBJID", how="left")
