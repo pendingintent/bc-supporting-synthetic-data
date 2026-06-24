@@ -296,8 +296,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         merged_d = death_ds.merge(dm_death, on="USUBJID", how="left")
         bad_dth = (merged_d["_ds_dtc"] != merged_d["DTHDTC"]).sum()
         _check(
-            r,
-            "DS: DEATH record DSDTC = DM DTHDTC (FB0611)",
+            "DS: DEATH record DSSTDTC = DM DTHDTC (FB0611)",
             bad_dth == 0,
             f"{bad_dth} mismatches",
         )
