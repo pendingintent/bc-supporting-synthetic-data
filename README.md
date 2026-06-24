@@ -62,7 +62,7 @@ bc-supporting-synthetic-data/
 | `TR` | `TR.csv` | Tumor Results — per-lesion LDIAM and visit-level SUMDIAM measurements |
 | `RS` | `RS.csv` | Disease Response — CR/PR/SD/PD/NE derived from SUMDIAM per RECIST 1.1 |
 | `DS` | `DS.csv` | Disposition — informed consent, randomization, treatment stop, study end |
-| `FA` | `FA.csv` | Findings About — occurrence indicators for consent and randomization events |
+| `FA` | `FA.csv` | Findings About — occurrence indicators for DS disposition/milestone events (`FAOBJ = DSDECOD`) |
 | `RELREC` | `RELREC.csv` | Related Records — links FA and DS records per subject |
 | `TV` | `TV.csv` | Trial Visits — planned visit schedule through ~18 cycles |
 | `TA` | `TA.csv` | Trial Arms — SCREENING / INDUCTION / CONTINUATION / FOLLOW-UP epochs |
