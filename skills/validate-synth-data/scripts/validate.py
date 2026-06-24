@@ -80,7 +80,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         dm["ARMCD"].isin({"TRT", "PLC"}).all(),
         f"{(~dm['ARMCD'].isin({'TRT', 'PLC'})).sum()} bad values",
     )
-    _check(r, "DM: DTHFL ∈ {Y, N}", dm["DTHFL"].isin({"Y", "N"}).all())
+    _check(r, "DM: DTHFL ∈ {Y, ''}", dm["DTHFL"].isin({"Y", ""}).all())
     bad_ids = (~dm["USUBJID"].str.match(USUBJID_RE)).sum()
     _check(
         r,
@@ -166,8 +166,13 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         "TR: TRTESTCD ∈ {LDIAM, SUMDIAM}",
         tr["TRTESTCD"].isin({"LDIAM", "SUMDIAM"}).all(),
     )
-    _check(r, "TR: TRSTRESU = mm", (tr["TRSTRESU"] == "mm").all())
-    _check(r, "TR: LOBXFL ∈ {Y, ''}", tr["LOBXFL"].isin({"Y", ""}).all())
+    evaluable_tr = tr[tr["TRSTAT"] != "NOT DONE"]
+    _check(
+        r,
+        "TR: TRSTRESU = mm (evaluable rows)",
+        (evaluable_tr["TRSTRESU"] == "mm").all(),
+    )
+    _check(r, "TR: TRLOBXFL ∈ {Y, ''}", tr["TRLOBXFL"].isin({"Y", ""}).all())
     _check(
         r,
         "TR: TRLNKID present (not TRLINKID)",
@@ -471,9 +476,9 @@ def check_recist(datasets: Path) -> list[CheckResult]:
     # Every RS USUBJID must have a baseline SUMDIAM in TR
     rs_ids = set(rs["USUBJID"])
     sumd_bl_ids = (
-        set(tr[(tr.get("TRTESTCD", pd.Series()) == "SUMDIAM") & (tr["LOBXFL"] == "Y")]["USUBJID"])
+        set(tr[(tr.get("TRTESTCD", pd.Series()) == "SUMDIAM") & (tr["TRLOBXFL"] == "Y")]["USUBJID"])
         if "TRTESTCD" in tr.columns
-        else set(tr[tr["LOBXFL"] == "Y"]["USUBJID"])
+        else set(tr[tr["TRLOBXFL"] == "Y"]["USUBJID"])
     )
     missing_baseline = rs_ids - sumd_bl_ids
     _check(
@@ -823,7 +828,7 @@ def check_duplicates_and_coverage(datasets: Path) -> list[CheckResult]:
         )
 
     # Visit schedules not perfectly identical: check TR baseline dates vary
-    bl_dates = tr[tr["LOBXFL"] == "Y"].groupby("USUBJID")["TRDTC"].first()
+    bl_dates = tr[tr["TRLOBXFL"] == "Y"].groupby("USUBJID")["TRDTC"].first()
     _check(
         r,
         "TR: baseline dates are not all identical (schedules vary)",
