@@ -196,7 +196,7 @@ ln -s "$(pwd)/skills/validate-synth-data" ~/.claude/skills/validate-synth-data
 ```bash
 claude  # from the project root
 ```
-When claude starts, issue the command:
+When Claude starts, issue the command:
 
 ```
 /init
