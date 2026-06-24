@@ -196,8 +196,15 @@ ln -s "$(pwd)/skills/validate-synth-data" ~/.claude/skills/validate-synth-data
 ```bash
 claude  # from the project root
 ```
+When claude starts, issue the command:
 
-Claude will automatically load `CLAUDE.md` for project context and pick up the skill from `~/.claude/skills/`.
+```
+/init
+```
+
+This will prompt the user for instructions and create the CLAUDE.md file.
+
+Claude will pick up the skill from `~/.claude/skills/`.
 
 ### 4. Verify the skill is active
 
