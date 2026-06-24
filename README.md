@@ -202,7 +202,7 @@ When claude starts, issue the command:
 /init
 ```
 
-This will prompt the user for instructions and create the CLAUDE.md file.
+This will prompt you for instructions and create the `CLAUDE.md` file.
 
 Claude will pick up the skill from `~/.claude/skills/`.
 
