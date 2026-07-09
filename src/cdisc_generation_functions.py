@@ -1204,12 +1204,8 @@ def create_adsl(dm, ex, rs, events):
     for _, row in core.iterrows():
         progdt = row["PROGDT"]
         if pd.notna(progdt):
-            pfs = (progdt - row["EXSTDTC"]).days
-            cnsr = 0
             dcsreas = "PROGRESSIVE DISEASE"
         else:
-            pfs = (row["EXENDTC"] - row["EXSTDTC"]).days
-            cnsr = 1
             dcsreas = (
                 "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "LOST TO FOLLOW-UP"
             )
@@ -1223,8 +1219,6 @@ def create_adsl(dm, ex, rs, events):
                 ],  # planned = actual (no crossover in this study)
                 "TRT01A": row["TRT01A"],
                 "AGE": row["AGE"],
-                "PFS": pfs,
-                "CNSR": cnsr,
                 "BESTRESP": bestresp_map.get(row["USUBJID"], ""),
                 "DCSREAS": dcsreas,
                 "ITTFL": "Y",  # all randomised subjects are in the ITT population
@@ -1239,21 +1233,42 @@ def create_adsl(dm, ex, rs, events):
 # ── ADTTE ─────────────────────────────────────────────────────────────────────
 
 
-def create_adtte(adsl):
-    return pd.DataFrame(
-        [
+def create_adtte(adsl, ex, events):
+    ex_dates = (
+        ex.groupby("USUBJID")
+        .agg(EXSTDTC=("EXSTDTC", "min"), EXENDTC=("EXENDTC", "max"))
+        .reset_index()
+    )
+    ex_dates["EXSTDTC"] = pd.to_datetime(ex_dates["EXSTDTC"])
+    ex_dates["EXENDTC"] = pd.to_datetime(ex_dates["EXENDTC"])
+
+    core = adsl.merge(ex_dates, on="USUBJID").merge(
+        events[["USUBJID", "PROGDT"]], on="USUBJID", how="left"
+    )
+
+    records = []
+    for _, row in core.iterrows():
+        progdt = row["PROGDT"]
+        if pd.notna(progdt):
+            pfs = (progdt - row["EXSTDTC"]).days
+            cnsr = 0
+        else:
+            pfs = (row["EXENDTC"] - row["EXSTDTC"]).days
+            cnsr = 1
+
+        records.append(
             {
                 "STUDYID": STUDYID,
                 "USUBJID": row["USUBJID"],
                 "PARAMCD": "PFS",
                 "PARAM": "Progression-Free Survival (Days)",
-                "AVAL": float(row["PFS"]),
-                "CNSR": row["CNSR"],
+                "AVAL": float(pfs),
+                "CNSR": cnsr,
                 "TRT01A": row["TRT01A"],
             }
-            for _, row in adsl.iterrows()
-        ]
-    )
+        )
+
+    return pd.DataFrame(records)
 
 
 # ── TV ────────────────────────────────────────────────────────────────────────
@@ -1385,7 +1400,7 @@ if __name__ == "__main__":
     fa = create_fa(ds)  # findings about DS disposition events
     relrec = create_relrec(fa, ds)  # links FA records to parent DS records (CG0603)
     adsl = create_adsl(dm, ex, rs, events)
-    adtte = create_adtte(adsl)
+    adtte = create_adtte(adsl, ex, events)
     tv = create_tv()
     ta = create_ta()
 
