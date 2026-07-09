@@ -1243,7 +1243,7 @@ def create_adtte(adsl, ex, events):
     ex_dates["EXENDTC"] = pd.to_datetime(ex_dates["EXENDTC"])
 
     core = adsl.merge(ex_dates, on="USUBJID").merge(
-        events[["USUBJID", "PROGDT"]], on="USUBJID", how="left"
+        events[["USUBJID", "PROGDT", "WITHDRAWAL"]], on="USUBJID", how="left"
     )
 
     records = []
@@ -1252,9 +1252,13 @@ def create_adtte(adsl, ex, events):
         if pd.notna(progdt):
             pfs = (progdt - row["EXSTDTC"]).days
             cnsr = 0
+            evntdesc = "Disease Progression"
         else:
             pfs = (row["EXENDTC"] - row["EXSTDTC"]).days
             cnsr = 1
+            evntdesc = (
+                "Withdrawal by Subject" if row["WITHDRAWAL"] else "Lost to Follow-up"
+            )
 
         records.append(
             {
@@ -1264,6 +1268,7 @@ def create_adtte(adsl, ex, events):
                 "PARAM": "Progression-Free Survival (Days)",
                 "AVAL": float(pfs),
                 "CNSR": cnsr,
+                "EVNTDESC": evntdesc,
                 "TRT01A": row["TRT01A"],
             }
         )
