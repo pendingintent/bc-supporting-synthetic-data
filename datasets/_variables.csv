@@ -164,8 +164,6 @@ ADSL,USUBJID,Unique Subject Identifier,Char,200
 ADSL,TRT01P,Planned Treatment for Period 01,Char,200
 ADSL,TRT01A,Actual Treatment for Period 01,Char,200
 ADSL,AGE,Age,Num,8
-ADSL,PFS,Progression-Free Survival (days),Num,8
-ADSL,CNSR,Censoring Indicator,Num,8
 ADSL,BESTRESP,Best Overall Response,Char,200
 ADSL,DCSREAS,Reason for Discontinuation of Study,Char,200
 ADSL,ITTFL,Intent-To-Treat Population Flag,Char,1
@@ -179,6 +177,7 @@ ADTTE,AVAL,Analysis Value,Num,8
 ADTTE,STARTDT,Time-to-Event Analysis Start Date,Char,10
 ADTTE,ADT,Analysis Date,Char,10
 ADTTE,CNSR,Censoring Indicator,Num,8
+ADTTE,EVNTDESC,Event or Censoring Description,Char,200
 ADTTE,TRT01A,Actual Treatment for Period 01,Char,200
 ADTTE,ITTFL,Intent-To-Treat Population Flag,Char,1
 ADTTE,SAFFL,Safety Population Flag,Char,1
