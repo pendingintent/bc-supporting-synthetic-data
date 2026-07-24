@@ -1,4 +1,22 @@
 dataset,variable,label,type,length
+AE,STUDYID,Study Identifier,Char,200
+AE,DOMAIN,Domain Abbreviation,Char,2
+AE,USUBJID,Unique Subject Identifier,Char,200
+AE,AESEQ,Sequence Number,Num,8
+AE,AETERM,Reported Term for the Adverse Event,Char,200
+AE,AEDECOD,Dictionary-Derived Term,Char,200
+AE,AEBODSYS,Body System or Organ Class,Char,200
+AE,AESTDTC,Start Date/Time of Adverse Event,Char,10
+AE,AEENDTC,End Date/Time of Adverse Event,Char,10
+AE,AESTDY,Study Day of Start of Adverse Event,Num,8
+AE,AEENDY,Study Day of End of Adverse Event,Num,8
+AE,AESEV,Severity/Intensity,Char,200
+AE,AESER,Serious Event,Char,1
+AE,AESDTH,Results in Death,Char,1
+AE,AEREL,Causality,Char,200
+AE,AEACN,Action Taken with Study Treatment,Char,200
+AE,AEOUT,Outcome of Adverse Event,Char,200
+AE,EPOCH,Epoch,Char,200
 DM,STUDYID,Study Identifier,Char,200
 DM,DOMAIN,Domain Abbreviation,Char,2
 DM,USUBJID,Unique Subject Identifier,Char,200

@@ -1045,6 +1045,84 @@ def create_ds(dm, ex, events):
     ]
 
 
+# ── AE ────────────────────────────────────────────────────────────────────────
+
+
+def apply_fatal_ae(dm, ds):
+    """
+    Attribute one Placebo-arm subject's death to a fatal serious adverse event
+    (pneumonia) instead of their originally-generated discontinuation reason,
+    guaranteeing >=1 documented Placebo death tied to an AE. Mutates dm/ds in
+    place (DSTERM/DSDECOD for the treatment-discontinuation records) and
+    returns that subject's USUBJID plus the corresponding AE record.
+
+    Selection is deterministic (no new random draws) so it doesn't perturb the
+    rest of the seeded pipeline: prefer a Placebo death not already attributed
+    to disease progression (so the AE narrative doesn't conflict with a
+    recorded PD), falling back to any Placebo death, and finally forcing one
+    if the (astronomically unlikely) case of zero Placebo deaths occurs.
+    """
+    placebo_died = dm[(dm["ARMCD"] == "PLC") & (dm["DTHFL"] == "Y")].sort_values("USUBJID")
+
+    if len(placebo_died):
+        stop_reason = ds[(ds["DSCAT"] == "DISPOSITION EVENT") & (ds["DSSCAT"] == "FULVESTRANT")].set_index(
+            "USUBJID"
+        )["DSDECOD"]
+        non_pd = placebo_died[placebo_died["USUBJID"].map(stop_reason) != "PROGRESSIVE DISEASE"]
+        target = (non_pd if len(non_pd) else placebo_died).iloc[0]
+        usubjid, rfstdtc, dthdtc = target["USUBJID"], target["RFSTDTC"], target["DTHDTC"]
+    else:
+        target = dm[dm["ARMCD"] == "PLC"].sort_values("RFXENDTC", ascending=False).iloc[0]
+        usubjid, rfstdtc = target["USUBJID"], target["RFSTDTC"]
+        rfxendtc = datetime.strptime(str(target["RFXENDTC"])[:10], "%Y-%m-%d")
+        dthdtc = min(rfxendtc + timedelta(days=30), _STUDY_END).strftime("%Y-%m-%d")
+        dm.loc[dm["USUBJID"] == usubjid, ["DTHFL", "DTHDTC", "RFPENDTC", "RFENDTC"]] = ["Y", dthdtc, dthdtc, dthdtc]
+        ds.loc[
+            (ds["USUBJID"] == usubjid) & (ds["DSSCAT"] == "STUDY PARTICIPATION"),
+            ["DSTERM", "DSDECOD", "DSSTDTC"],
+        ] = ["DEATH", "DEATH", dthdtc]
+
+    disc_mask = (
+        (ds["USUBJID"] == usubjid) & (ds["DSCAT"] == "DISPOSITION EVENT") & (ds["DSSCAT"] != "STUDY PARTICIPATION")
+    )
+    ds.loc[disc_mask, ["DSTERM", "DSDECOD"]] = "ADVERSE EVENT"
+    stop_dtc = ds.loc[disc_mask, "DSSTDTC"].iloc[0]
+    epoch = ds.loc[disc_mask, "EPOCH"].iloc[0]
+
+    # AE onset precedes treatment discontinuation, clamped to not predate RFSTDTC
+    onset = max(
+        datetime.strptime(stop_dtc, "%Y-%m-%d") - timedelta(days=7),
+        datetime.strptime(str(rfstdtc)[:10], "%Y-%m-%d"),
+    )
+    aestdtc = onset.strftime("%Y-%m-%d")
+
+    ae = pd.DataFrame(
+        [
+            {
+                "STUDYID": STUDYID,
+                "DOMAIN": "AE",
+                "USUBJID": usubjid,
+                "AESEQ": 1,
+                "AETERM": "PNEUMONIA",
+                "AEDECOD": "PNEUMONIA",
+                "AEBODSYS": "INFECTIONS AND INFESTATIONS",
+                "AESTDTC": aestdtc,
+                "AEENDTC": dthdtc,
+                "AESTDY": _study_day(aestdtc, rfstdtc),
+                "AEENDY": _study_day(dthdtc, rfstdtc),
+                "AESEV": "SEVERE",
+                "AESER": "Y",
+                "AESDTH": "Y",
+                "AEREL": "NOT RELATED",
+                "AEACN": "DRUG WITHDRAWN",
+                "AEOUT": "FATAL",
+                "EPOCH": epoch,
+            }
+        ]
+    )
+    return usubjid, ae
+
+
 # ── FA ────────────────────────────────────────────────────────────────────────
 
 
@@ -1341,9 +1419,11 @@ if __name__ == "__main__":
     tu = create_tu(dm, tr)  # tumor identification; needs TR baselines
     dm = finalize_dm(dm, ex, events)
     ds = create_ds(dm, ex, events)
+    ae_usubjid, ae = apply_fatal_ae(dm, ds)  # guarantees >=1 Placebo death tied to an AE
     fa = create_fa(ds)  # findings about DS disposition events
     relrec = create_relrec(fa, ds)  # links FA records to parent DS records (CG0603)
     adsl = create_adsl(dm, ex, rs, events)
+    adsl.loc[adsl["USUBJID"] == ae_usubjid, "DCSREAS"] = "ADVERSE EVENT"
     adtte = create_adtte(adsl, ex, events)
     tv = create_tv()
     ta = create_ta()
@@ -1355,6 +1435,7 @@ if __name__ == "__main__":
         ("TR", tr),
         ("RS", rs),
         ("DS", ds),
+        ("AE", ae),
         ("FA", fa),
         ("RELREC", relrec),
         ("ADSL", adsl),
