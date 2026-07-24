@@ -333,34 +333,46 @@ def check_structural(datasets: Path) -> list[CheckResult]:
     _check(r, "ADTTE: CNSR ∈ {0, 1}", adtte["CNSR"].isin({"0", "1"}).all())
     _check(r, "ADTTE: AVAL > 0", (_num(adtte["AVAL"]) > 0).all())
 
-    startdt = pd.to_datetime(adtte["STARTDT"], errors="coerce")
-    adt = pd.to_datetime(adtte["ADT"], errors="coerce")
+    has_startdt = "STARTDT" in adtte.columns
+    has_adt = "ADT" in adtte.columns
+    startdt = pd.to_datetime(adtte["STARTDT"], errors="coerce") if has_startdt else None
+    adt = pd.to_datetime(adtte["ADT"], errors="coerce") if has_adt else None
     _check(
         r,
         "ADTTE: STARTDT present and parseable",
-        "STARTDT" in adtte.columns and startdt.notna().all(),
-        f"{startdt.isna().sum()} missing/unparseable values",
+        has_startdt and startdt.notna().all(),
+        f"{startdt.isna().sum()} missing/unparseable values" if has_startdt else "column missing",
     )
     _check(
         r,
         "ADTTE: ADT present and parseable",
-        "ADT" in adtte.columns and adt.notna().all(),
-        f"{adt.isna().sum()} missing/unparseable values",
+        has_adt and adt.notna().all(),
+        f"{adt.isna().sum()} missing/unparseable values" if has_adt else "column missing",
     )
-    bad_order = (adt < startdt).sum()
-    _check(
-        r,
-        "ADTTE: ADT ≥ STARTDT",
-        bad_order == 0,
-        f"{bad_order} records with ADT before STARTDT",
-    )
-    bad_aval = (((adt - startdt).dt.days) != _num(adtte["AVAL"])).sum()
-    _check(
-        r,
-        "ADTTE: AVAL = (ADT − STARTDT) in days",
-        bad_aval == 0,
-        f"{bad_aval} inconsistent records",
-    )
+    parseable = has_startdt and has_adt and startdt.notna().all() and adt.notna().all()
+    if parseable:
+        bad_order = (adt < startdt).sum()
+        _check(
+            r,
+            "ADTTE: ADT ≥ STARTDT",
+            bad_order == 0,
+            f"{bad_order} records with ADT before STARTDT",
+        )
+        bad_aval = (((adt - startdt).dt.days) != _num(adtte["AVAL"])).sum()
+        _check(
+            r,
+            "ADTTE: AVAL = (ADT − STARTDT) in days",
+            bad_aval == 0,
+            f"{bad_aval} inconsistent records",
+        )
+    else:
+        _check(r, "ADTTE: ADT ≥ STARTDT", False, "cannot evaluate — column(s) missing or unparseable")
+        _check(
+            r,
+            "ADTTE: AVAL = (ADT − STARTDT) in days",
+            False,
+            "cannot evaluate — column(s) missing or unparseable",
+        )
     for flag in ("ITTFL", "SAFFL", "PPROTFL"):
         _check(
             r,

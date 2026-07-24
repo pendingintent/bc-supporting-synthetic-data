@@ -1079,8 +1079,8 @@ def apply_fatal_ae(dm, ds):
         dm.loc[dm["USUBJID"] == usubjid, ["DTHFL", "DTHDTC", "RFPENDTC", "RFENDTC"]] = ["Y", dthdtc, dthdtc, dthdtc]
         ds.loc[
             (ds["USUBJID"] == usubjid) & (ds["DSSCAT"] == "STUDY PARTICIPATION"),
-            ["DSTERM", "DSDECOD", "DSSTDTC"],
-        ] = ["DEATH", "DEATH", dthdtc]
+            ["DSTERM", "DSDECOD", "DSSTDTC", "DSSTDY"],
+        ] = ["DEATH", "DEATH", dthdtc, _study_day(dthdtc, rfstdtc)]
 
     disc_mask = (
         (ds["USUBJID"] == usubjid) & (ds["DSCAT"] == "DISPOSITION EVENT") & (ds["DSSCAT"] != "STUDY PARTICIPATION")
@@ -1247,15 +1247,22 @@ def create_adsl(dm, ex, rs, events):
 
 # ── ADTTE ─────────────────────────────────────────────────────────────────────
 
+# Maps ADSL.DCSREAS (for censored, non-progressed subjects) to ADTTE.EVNTDESC,
+# so a DCSREAS override (e.g. apply_fatal_ae's ADVERSE EVENT) stays consistent
+# with the derived time-to-event description.
+_DCSREAS_TO_EVNTDESC = {
+    "WITHDRAWAL BY SUBJECT": "Withdrawal by Subject",
+    "LOST TO FOLLOW-UP": "Lost to Follow-up",
+    "ADVERSE EVENT": "Adverse Event",
+}
+
 
 def create_adtte(adsl, ex, events):
     ex_dates = ex.groupby("USUBJID").agg(EXSTDTC=("EXSTDTC", "min"), EXENDTC=("EXENDTC", "max")).reset_index()
     ex_dates["EXSTDTC"] = pd.to_datetime(ex_dates["EXSTDTC"])
     ex_dates["EXENDTC"] = pd.to_datetime(ex_dates["EXENDTC"])
 
-    core = adsl.merge(ex_dates, on="USUBJID").merge(
-        events[["USUBJID", "PROGDT", "WITHDRAWAL"]], on="USUBJID", how="left"
-    )
+    core = adsl.merge(ex_dates, on="USUBJID").merge(events[["USUBJID", "PROGDT"]], on="USUBJID", how="left")
 
     records = []
     for _, row in core.iterrows():
@@ -1270,7 +1277,7 @@ def create_adtte(adsl, ex, events):
             adt = row["EXENDTC"]
             pfs = (adt - startdt).days
             cnsr = 1
-            evntdesc = "Withdrawal by Subject" if row["WITHDRAWAL"] else "Lost to Follow-up"
+            evntdesc = _DCSREAS_TO_EVNTDESC[row["DCSREAS"]]
 
         records.append(
             {
