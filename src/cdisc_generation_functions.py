@@ -1206,6 +1206,9 @@ def create_adtte(adsl, ex, events):
                 "CNSR": cnsr,
                 "EVNTDESC": evntdesc,
                 "TRT01A": row["TRT01A"],
+                "ITTFL": row["ITTFL"],
+                "SAFFL": row["SAFFL"],
+                "PPROTFL": row["PPROTFL"],
             }
         )
 

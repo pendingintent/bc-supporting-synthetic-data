@@ -162,3 +162,6 @@ ADTTE,STARTDT,Time-to-Event Analysis Start Date,Char,10
 ADTTE,ADT,Analysis Date,Char,10
 ADTTE,CNSR,Censoring Indicator,Num,8
 ADTTE,TRT01A,Actual Treatment for Period 01,Char,200
+ADTTE,ITTFL,Intent-To-Treat Population Flag,Char,1
+ADTTE,SAFFL,Safety Population Flag,Char,1
+ADTTE,PPROTFL,Per-Protocol Population Flag,Char,1
