@@ -1182,12 +1182,15 @@ def create_adtte(adsl, ex, events):
     records = []
     for _, row in core.iterrows():
         progdt = row["PROGDT"]
+        startdt = row["EXSTDTC"]
         if pd.notna(progdt):
-            pfs = (progdt - row["EXSTDTC"]).days
+            adt = progdt
+            pfs = (adt - startdt).days
             cnsr = 0
             evntdesc = "Disease Progression"
         else:
-            pfs = (row["EXENDTC"] - row["EXSTDTC"]).days
+            adt = row["EXENDTC"]
+            pfs = (adt - startdt).days
             cnsr = 1
             evntdesc = "Withdrawal by Subject" if row["WITHDRAWAL"] else "Lost to Follow-up"
 
@@ -1198,6 +1201,8 @@ def create_adtte(adsl, ex, events):
                 "PARAMCD": "PFS",
                 "PARAM": "Progression-Free Survival (Days)",
                 "AVAL": float(pfs),
+                "STARTDT": startdt.strftime("%Y-%m-%d"),
+                "ADT": adt.strftime("%Y-%m-%d"),
                 "CNSR": cnsr,
                 "EVNTDESC": evntdesc,
                 "TRT01A": row["TRT01A"],

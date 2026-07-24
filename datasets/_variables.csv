@@ -158,5 +158,7 @@ ADTTE,USUBJID,Unique Subject Identifier,Char,200
 ADTTE,PARAMCD,Parameter Code,Char,8
 ADTTE,PARAM,Parameter,Char,200
 ADTTE,AVAL,Analysis Value,Num,8
+ADTTE,STARTDT,Time-to-Event Analysis Start Date,Char,10
+ADTTE,ADT,Analysis Date,Char,10
 ADTTE,CNSR,Censoring Indicator,Num,8
 ADTTE,TRT01A,Actual Treatment for Period 01,Char,200
