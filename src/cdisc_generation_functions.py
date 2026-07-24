@@ -1065,9 +1065,9 @@ def apply_fatal_ae(dm, ds):
     placebo_died = dm[(dm["ARMCD"] == "PLC") & (dm["DTHFL"] == "Y")].sort_values("USUBJID")
 
     if len(placebo_died):
-        stop_reason = ds[(ds["DSCAT"] == "DISPOSITION EVENT") & (ds["DSSCAT"] == "FULVESTRANT")].set_index(
-            "USUBJID"
-        )["DSDECOD"]
+        stop_reason = ds[(ds["DSCAT"] == "DISPOSITION EVENT") & (ds["DSSCAT"] == "FULVESTRANT")].set_index("USUBJID")[
+            "DSDECOD"
+        ]
         non_pd = placebo_died[placebo_died["USUBJID"].map(stop_reason) != "PROGRESSIVE DISEASE"]
         target = (non_pd if len(non_pd) else placebo_died).iloc[0]
         usubjid, rfstdtc, dthdtc = target["USUBJID"], target["RFSTDTC"], target["DTHDTC"]
