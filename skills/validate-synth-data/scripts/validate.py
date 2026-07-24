@@ -253,6 +253,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         "PROGRESSIVE DISEASE",
         "WITHDRAWAL BY SUBJECT",
         "LOST TO FOLLOW-UP",
+        "ADVERSE EVENT",
         "DEATH",
     }
     bad_decod = (~ds["DSDECOD"].isin(_valid_dsdecod)).sum()
