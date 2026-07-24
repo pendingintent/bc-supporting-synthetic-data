@@ -1079,8 +1079,8 @@ def apply_fatal_ae(dm, ds):
         dm.loc[dm["USUBJID"] == usubjid, ["DTHFL", "DTHDTC", "RFPENDTC", "RFENDTC"]] = ["Y", dthdtc, dthdtc, dthdtc]
         ds.loc[
             (ds["USUBJID"] == usubjid) & (ds["DSSCAT"] == "STUDY PARTICIPATION"),
-            ["DSTERM", "DSDECOD", "DSSTDTC"],
-        ] = ["DEATH", "DEATH", dthdtc]
+            ["DSTERM", "DSDECOD", "DSSTDTC", "DSSTDY"],
+        ] = ["DEATH", "DEATH", dthdtc, _study_day(dthdtc, rfstdtc)]
 
     disc_mask = (
         (ds["USUBJID"] == usubjid) & (ds["DSCAT"] == "DISPOSITION EVENT") & (ds["DSSCAT"] != "STUDY PARTICIPATION")
