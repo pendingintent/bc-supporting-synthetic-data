@@ -349,7 +349,8 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         has_adt and adt.notna().all(),
         f"{adt.isna().sum()} missing/unparseable values" if has_adt else "column missing",
     )
-    if has_startdt and has_adt:
+    parseable = has_startdt and has_adt and startdt.notna().all() and adt.notna().all()
+    if parseable:
         bad_order = (adt < startdt).sum()
         _check(
             r,
@@ -365,8 +366,13 @@ def check_structural(datasets: Path) -> list[CheckResult]:
             f"{bad_aval} inconsistent records",
         )
     else:
-        _check(r, "ADTTE: ADT ≥ STARTDT", False, "cannot evaluate — column(s) missing")
-        _check(r, "ADTTE: AVAL = (ADT − STARTDT) in days", False, "cannot evaluate — column(s) missing")
+        _check(r, "ADTTE: ADT ≥ STARTDT", False, "cannot evaluate — column(s) missing or unparseable")
+        _check(
+            r,
+            "ADTTE: AVAL = (ADT − STARTDT) in days",
+            False,
+            "cannot evaluate — column(s) missing or unparseable",
+        )
     for flag in ("ITTFL", "SAFFL", "PPROTFL"):
         _check(
             r,
