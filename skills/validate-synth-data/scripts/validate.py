@@ -253,6 +253,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         "PROGRESSIVE DISEASE",
         "WITHDRAWAL BY SUBJECT",
         "LOST TO FOLLOW-UP",
+        "ADVERSE EVENT",
         "DEATH",
     }
     bad_decod = (~ds["DSDECOD"].isin(_valid_dsdecod)).sum()
@@ -301,6 +302,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         merged_d = death_ds.merge(dm_death, on="USUBJID", how="left")
         bad_dth = (merged_d["_ds_dtc"] != merged_d["DTHDTC"]).sum()
         _check(
+            r,
             "DS: DEATH record DSSTDTC = DM DTHDTC (FB0611)",
             bad_dth == 0,
             f"{bad_dth} mismatches",
@@ -318,13 +320,6 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         "ADSL: TRT01P present and = TRT01A (no crossover)",
         "TRT01P" in adsl.columns and (adsl["TRT01P"] == adsl["TRT01A"]).all(),
     )
-    _check(r, "ADSL: CNSR ∈ {0, 1}", adsl["CNSR"].isin({"0", "1"}).all())
-    _check(
-        r,
-        "ADSL: PFS > 0",
-        (_num(adsl["PFS"]) > 0).all(),
-        f"{(_num(adsl['PFS']) <= 0).sum()} bad values",
-    )
     for flag in ("ITTFL", "SAFFL", "PPROTFL"):
         _check(
             r,
@@ -337,6 +332,41 @@ def check_structural(datasets: Path) -> list[CheckResult]:
     _check(r, "ADTTE: PARAMCD = PFS", (adtte["PARAMCD"] == "PFS").all())
     _check(r, "ADTTE: CNSR ∈ {0, 1}", adtte["CNSR"].isin({"0", "1"}).all())
     _check(r, "ADTTE: AVAL > 0", (_num(adtte["AVAL"]) > 0).all())
+
+    startdt = pd.to_datetime(adtte["STARTDT"], errors="coerce")
+    adt = pd.to_datetime(adtte["ADT"], errors="coerce")
+    _check(
+        r,
+        "ADTTE: STARTDT present and parseable",
+        "STARTDT" in adtte.columns and startdt.notna().all(),
+        f"{startdt.isna().sum()} missing/unparseable values",
+    )
+    _check(
+        r,
+        "ADTTE: ADT present and parseable",
+        "ADT" in adtte.columns and adt.notna().all(),
+        f"{adt.isna().sum()} missing/unparseable values",
+    )
+    bad_order = (adt < startdt).sum()
+    _check(
+        r,
+        "ADTTE: ADT ≥ STARTDT",
+        bad_order == 0,
+        f"{bad_order} records with ADT before STARTDT",
+    )
+    bad_aval = (((adt - startdt).dt.days) != _num(adtte["AVAL"])).sum()
+    _check(
+        r,
+        "ADTTE: AVAL = (ADT − STARTDT) in days",
+        bad_aval == 0,
+        f"{bad_aval} inconsistent records",
+    )
+    for flag in ("ITTFL", "SAFFL", "PPROTFL"):
+        _check(
+            r,
+            f"ADTTE: {flag} present and ∈ {{Y, N}}",
+            flag in adtte.columns and adtte[flag].isin({"Y", "N"}).all(),
+        )
 
     return r
 
