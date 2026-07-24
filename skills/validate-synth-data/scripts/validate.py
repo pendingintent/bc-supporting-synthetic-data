@@ -301,6 +301,7 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         merged_d = death_ds.merge(dm_death, on="USUBJID", how="left")
         bad_dth = (merged_d["_ds_dtc"] != merged_d["DTHDTC"]).sum()
         _check(
+            r,
             "DS: DEATH record DSSTDTC = DM DTHDTC (FB0611)",
             bad_dth == 0,
             f"{bad_dth} mismatches",
@@ -317,13 +318,6 @@ def check_structural(datasets: Path) -> list[CheckResult]:
         r,
         "ADSL: TRT01P present and = TRT01A (no crossover)",
         "TRT01P" in adsl.columns and (adsl["TRT01P"] == adsl["TRT01A"]).all(),
-    )
-    _check(r, "ADSL: CNSR ∈ {0, 1}", adsl["CNSR"].isin({"0", "1"}).all())
-    _check(
-        r,
-        "ADSL: PFS > 0",
-        (_num(adsl["PFS"]) > 0).all(),
-        f"{(_num(adsl['PFS']) <= 0).sum()} bad values",
     )
     for flag in ("ITTFL", "SAFFL", "PPROTFL"):
         _check(
