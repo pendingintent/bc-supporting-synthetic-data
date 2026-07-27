@@ -642,6 +642,13 @@ def create_tr(ex, events, dm):
                 scale_factor = (pd_threshold * 0.95) / sumd_candidate
                 new_sizes[:n_lesions] = new_sizes[:n_lesions] * scale_factor
 
+            # Re-enforce the RECIST floor: any measurable (non-zero) lesion must
+            # stay >= 5 mm even after topping up or scaling down above.
+            measurable = new_sizes[:n_lesions] > 0
+            new_sizes[:n_lesions] = np.where(
+                measurable, np.maximum(_MIN_LESION_MM, new_sizes[:n_lesions]), 0.0
+            )
+
             current_sizes = new_sizes
 
             for li in range(n_lesions):
