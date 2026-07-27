@@ -555,7 +555,7 @@ def create_tr(ex, events, dm):
         ex_end = ex_end_map.get(uid)
         pd_threshold = 1.20 * bl_sumd
 
-        for v, day in enumerate(range(85, 1500, 84), start=1):
+        for v, day in enumerate(range(_FIRST_SCAN_DAY, 1500, _SCAN_INTERVAL_DAYS), start=1):
             date = row["EXSTDTC"] + timedelta(days=day)
             if has_progdt and date > progdt:
                 break
@@ -1417,7 +1417,7 @@ def create_tv():
         (1, "SCREENING", -14, -14, 0, "SCREENING"),
         (2, "BASELINE", 1, 1, 1, "INDUCTION"),
     ]
-    for v, day in enumerate(range(85, 1500, 84), start=1):
+    for v, day in enumerate(range(_FIRST_SCAN_DAY, 1500, _SCAN_INTERVAL_DAYS), start=1):
         epoch = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
         visits.append((v + 2, f"WEEK {v * 12}", day, day, day, epoch))
 
