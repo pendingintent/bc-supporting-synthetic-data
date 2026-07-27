@@ -9,13 +9,28 @@ STUDYID = "NCT01797120"
 _INDUCTION_DAYS = 12 * 28  # 336 days
 
 # Progression parameters empirically calibrated (n=50k simulation) to match
-# FHIR-published KM medians with U(60,600) censoring:
-#   Treatment target: 10.3 months (314 days)  → p=0.85, exp scale=350 days
-#   Placebo   target:  5.1 months (155 days)  → p=0.90, exp scale=195 days
+# FHIR-published KM medians with U(60,600) censoring, snapped onto the scan
+# schedule below (see _snap_to_scan_day):
+#   Treatment target: 10.3 months (314 days)  → p=0.85, exp scale=310 days
+#   Placebo   target:  5.1 months (155 days)  → p=0.90, exp scale=165 days
 _PROG = {
-    "Treatment": {"prob": 0.85, "scale": 350},
-    "Placebo": {"prob": 0.90, "scale": 195},
+    "Treatment": {"prob": 0.85, "scale": 310},
+    "Placebo": {"prob": 0.90, "scale": 165},
 }
+
+# Tumour assessment schedule (also used by create_tr): first scan at day 85,
+# then every 84 days. PROGDT is always snapped onto one of these dates so a
+# progression disposition is never dated before a scan could have observed it.
+_FIRST_SCAN_DAY = 85
+_SCAN_INTERVAL_DAYS = 84
+
+
+def _snap_to_scan_day(day):
+    """Snap a day offset forward to the next scheduled scan day (85, 169, 253, ...)."""
+    if day <= _FIRST_SCAN_DAY:
+        return _FIRST_SCAN_DAY
+    n = -(-(day - _FIRST_SCAN_DAY) // _SCAN_INTERVAL_DAYS)  # ceil division
+    return _FIRST_SCAN_DAY + _SCAN_INTERVAL_DAYS * n
 
 # Tumour dynamics: responder/non-responder model calibrated to match FHIR-published ORR
 # (Trt 18.2%, Pbo 12.3%).  Responders: −12 mm/visit drift; non-responders: +2 mm/visit.
@@ -256,9 +271,15 @@ def create_ex(dm):
 
 def finalize_ex(ex, events, dm):
     """
-    Remove EX records that start after a subject's progression date, and cap
-    EXENDTC (and EXENDY) at that date.  This ensures RFXENDTC derived from EX
-    correctly reflects when treatment actually stopped for progressors.
+    Reconcile EX with each subject's progression date (if any):
+      - Remove EX records that start after progression, and cap EXENDTC (and
+        EXENDY) at that date for records that would otherwise run past it.
+      - Extend the continuous EVEROLIMUS/PLACEBO record's EXENDTC up to
+        PROGDT if the subject's independently-drawn dosing duration would
+        otherwise have ended earlier — treatment continued until it was
+        actually stopped for progression, not before.
+    This ensures RFXENDTC derived from EX correctly reflects when treatment
+    actually stopped for progressors, in both directions.
     """
     rfstdtc_map = dm.set_index("USUBJID")["RFSTDTC"].to_dict()
     prog_map = (
@@ -283,7 +304,20 @@ def finalize_ex(ex, events, dm):
                 row["EXENDY"] = _study_day(prog, rfstdtc_map[uid])
         keep.append(row)
 
-    return pd.DataFrame(keep).drop(columns=["_stdt", "_endt"]).reset_index(drop=True)
+    df = pd.DataFrame(keep)
+
+    continuous = df["EXTRT"].isin(["EVEROLIMUS", "PLACEBO"])
+    for uid, prog in prog_map.items():
+        mask = continuous & (df["USUBJID"] == uid)
+        if not mask.any():
+            continue
+        idx = df.index[mask][0]
+        if df.loc[idx, "_endt"] < prog:
+            df.loc[idx, "EXENDTC"] = prog.strftime("%Y-%m-%d")
+            df.loc[idx, "_endt"] = prog
+            df.loc[idx, "EXENDY"] = _study_day(prog, rfstdtc_map[uid])
+
+    return df.drop(columns=["_stdt", "_endt"]).reset_index(drop=True)
 
 
 # ── EVENTS (internal) ────────────────────────────────────────────────────────
@@ -292,11 +326,19 @@ def finalize_ex(ex, events, dm):
 def derive_events(ex, dm):
     """
     One row per subject with columns:
-      PROGDT, RESPONDER, WITHDRAWAL, DIED, DTHDT, FOLLOWUP_END.
+      PROGDT, RESPONDER, WITHDRAWAL, SURV_WITHDRAWAL, DIED, DTHDT, FOLLOWUP_END,
+      STUDY_DC_REASON.
 
     FOLLOWUP_END is the end of study participation — it drives RFPENDTC in DM
     and the date of the STUDY PARTICIPATION disposition record in DS.
     For progressors treatment ends at PROGDT, so follow-up is measured from there.
+
+    STUDY_DC_REASON is the reason the subject leaves the *study* (DS
+    STUDY PARTICIPATION / ADSL DCSREAS) as opposed to why study *therapy*
+    stopped: per protocol, a subject who progresses continues to be followed
+    for survival rather than being withdrawn from the study, so progression
+    alone is never a STUDY_DC_REASON — only DEATH, WITHDRAWAL BY SUBJECT, or
+    LOST TO FOLLOW-UP are.
     """
     ex_start = ex.groupby("USUBJID")["EXSTDTC"].min().reset_index()
     ex_end = ex.groupby("USUBJID")["EXENDTC"].max().reset_index()
@@ -308,7 +350,8 @@ def derive_events(ex, dm):
         arm = row["TRT01A"]
         params = _PROG[arm]
         if np.random.rand() < params["prob"]:
-            days = max(84, int(np.random.exponential(params["scale"])))
+            raw_days = max(84, int(np.random.exponential(params["scale"])))
+            days = _snap_to_scan_day(raw_days)
             progdt = start + timedelta(days=days)
         else:
             progdt = None
@@ -318,6 +361,9 @@ def derive_events(ex, dm):
     events = pd.DataFrame(records)
     no_prog = events["PROGDT"].isna()
     events["WITHDRAWAL"] = no_prog & (np.random.rand(len(events)) < 0.20)
+    # Reason a progressor eventually leaves the study during survival follow-up,
+    # independent of PROGDT (which only ends study *therapy*, per protocol).
+    events["SURV_WITHDRAWAL"] = ~no_prog & (np.random.rand(len(events)) < 0.20)
 
     events = events.merge(ex_end, on="USUBJID", how="left")
     died_list, dthdt_list, followup_list = [], [], []
@@ -361,6 +407,15 @@ def derive_events(ex, dm):
     events["DIED"] = died_list
     events["DTHDT"] = dthdt_list
     events["FOLLOWUP_END"] = followup_list
+
+    def _study_dc_reason(row):
+        if row["DIED"]:
+            return "DEATH"
+        if pd.notna(row["PROGDT"]):
+            return "WITHDRAWAL BY SUBJECT" if row["SURV_WITHDRAWAL"] else "LOST TO FOLLOW-UP"
+        return "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "LOST TO FOLLOW-UP"
+
+    events["STUDY_DC_REASON"] = events.apply(_study_dc_reason, axis=1)
     return events.drop(columns=["EXENDTC"])
 
 
@@ -495,14 +550,20 @@ def create_tr(ex, events, dm):
         seq += 1
 
         progdt = row["PROGDT"]
+        has_progdt = progdt is not None and pd.notna(progdt)
         ex_end = ex_end_map.get(uid)
+        pd_threshold = 1.20 * bl_sumd
 
         for v, day in enumerate(range(85, 1500, 84), start=1):
             date = row["EXSTDTC"] + timedelta(days=day)
-            if progdt is not None and pd.notna(progdt) and date > progdt:
+            if has_progdt and date > progdt:
                 break
             if ex_end is not None and date > ex_end:
                 break
+
+            # PROGDT is always snapped onto a scheduled scan date (see
+            # _snap_to_scan_day), so this is the progression-confirming scan.
+            is_terminal = has_progdt and date == progdt
 
             dtc = date.strftime("%Y-%m-%d")
             visitnum = v + 2
@@ -510,8 +571,9 @@ def create_tr(ex, events, dm):
             epoch = "INDUCTION" if day <= _INDUCTION_DAYS else "CONTINUATION"
             trdy = _study_day(date, rfstdtc_str)
 
-            # ~3% of visits are not evaluable (imaging quality)
-            if np.random.rand() < _NE_PROB:
+            # ~3% of visits are not evaluable (imaging quality) — never on the
+            # scan that must confirm progression
+            if not is_terminal and np.random.rand() < _NE_PROB:
                 for li in range(n_lesions):
                     tr.append(
                         _tr_record(
@@ -558,12 +620,31 @@ def create_tr(ex, events, dm):
                 continue
 
             # Normal visit: update each lesion
+            new_sizes = current_sizes.copy()
             for li in range(n_lesions):
-                new_size = current_sizes[li] + np.random.normal(drift, noise)
-                if row["RESPONDER"] and new_size <= _MIN_LESION_MM and np.random.rand() < 0.25:
-                    current_sizes[li] = 0.0  # lesion absent — CR possible
+                candidate = current_sizes[li] + np.random.normal(drift, noise)
+                if row["RESPONDER"] and candidate <= _MIN_LESION_MM and np.random.rand() < 0.25:
+                    new_sizes[li] = 0.0  # lesion absent — CR possible
                 else:
-                    current_sizes[li] = max(_MIN_LESION_MM, new_size)
+                    new_sizes[li] = max(_MIN_LESION_MM, candidate)
+
+            sumd_candidate = float(sum(new_sizes[:n_lesions]))
+            if is_terminal:
+                # Force a genuine, evaluable RECIST PD at the progression-confirming
+                # scan instead of leaving it to chance whether the organic walk
+                # crossed the threshold by this visit.
+                if pd_threshold > 0 and sumd_candidate < pd_threshold:
+                    top_up = (pd_threshold - sumd_candidate) / n_lesions + 1.0
+                    new_sizes[:n_lesions] = new_sizes[:n_lesions] + top_up
+            elif pd_threshold > 0 and sumd_candidate >= pd_threshold:
+                # No ground-truth progression yet (or not this visit) — cap
+                # growth so the organic walk never calls a premature/spurious PD.
+                scale_factor = (pd_threshold * 0.95) / sumd_candidate
+                new_sizes[:n_lesions] = new_sizes[:n_lesions] * scale_factor
+
+            current_sizes = new_sizes
+
+            for li in range(n_lesions):
                 tr.append(
                     _tr_record(
                         STUDYID,
@@ -896,7 +977,7 @@ def create_ds(dm, ex, events):
         dm[["USUBJID", "RFICDTC", "RFSTDTC", "ARMCD", "DTHFL", "DTHDTC"]]
         .merge(ex_dates, on="USUBJID")
         .merge(
-            events[["USUBJID", "PROGDT", "WITHDRAWAL", "FOLLOWUP_END"]],
+            events[["USUBJID", "PROGDT", "WITHDRAWAL", "FOLLOWUP_END", "STUDY_DC_REASON"]],
             on="USUBJID",
             how="left",
         )
@@ -926,11 +1007,14 @@ def create_ds(dm, ex, events):
             stop_dtc = str(row["EXENDTC"])[:10]
 
         # Use DM DTHDTC directly — ensures DS DEATH date = DM DTHDTC (FB0611)
+        # STUDY PARTICIPATION reflects why the subject left the *study*, which per
+        # protocol is never PROGRESSIVE DISEASE — progressors are followed for
+        # survival until DEATH, WITHDRAWAL BY SUBJECT, or LOST TO FOLLOW-UP.
         if did_die and row["DTHDTC"]:
             final_reason = "DEATH"
             final_dtc = str(row["DTHDTC"])[:10]
         else:
-            final_reason = stop_reason
+            final_reason = row["STUDY_DC_REASON"]
             final_dtc = _fmt(row["FOLLOWUP_END"])
 
         secondary = "EVEROLIMUS" if arm == "TRT" else "PLACEBO"
@@ -1216,16 +1300,15 @@ def create_adsl(dm, ex, rs, events):
     core = (
         dm_copy[["USUBJID", "TRT01A", "AGE"]]
         .merge(ex_dates[["USUBJID", "EXSTDTC", "EXENDTC"]])
-        .merge(events[["USUBJID", "PROGDT", "WITHDRAWAL"]], on="USUBJID", how="left")
+        .merge(events[["USUBJID", "STUDY_DC_REASON"]], on="USUBJID", how="left")
     )
 
     records = []
     for _, row in core.iterrows():
-        progdt = row["PROGDT"]
-        if pd.notna(progdt):
-            dcsreas = "PROGRESSIVE DISEASE"
-        else:
-            dcsreas = "WITHDRAWAL BY SUBJECT" if row["WITHDRAWAL"] else "LOST TO FOLLOW-UP"
+        # DCSREAS is reason for discontinuation from the *study*, which per protocol
+        # is never PROGRESSIVE DISEASE (see STUDY_DC_REASON in derive_events) and
+        # must agree with DS's STUDY PARTICIPATION disposition for the same subject.
+        dcsreas = row["STUDY_DC_REASON"]
 
         records.append(
             {
@@ -1254,6 +1337,7 @@ _DCSREAS_TO_EVNTDESC = {
     "WITHDRAWAL BY SUBJECT": "Withdrawal by Subject",
     "LOST TO FOLLOW-UP": "Lost to Follow-up",
     "ADVERSE EVENT": "Adverse Event",
+    "DEATH": "Death",
 }
 
 
