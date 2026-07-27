@@ -1,6 +1,6 @@
 # Synthetic Dataset Validation Report
 **Study:** NCT01797120  
-**Datasets path:** /Users/dmoreland/projects/bc-supporting-synthetic-data/datasets  
+**Datasets path:** datasets  
 **Generated:** 2026-07-27  
 **N subjects:** 200
 
