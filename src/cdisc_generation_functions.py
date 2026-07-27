@@ -1336,14 +1336,13 @@ def create_adsl(dm, ex, rs, events):
 
 # ── ADTTE ─────────────────────────────────────────────────────────────────────
 
-# Maps ADSL.DCSREAS (for censored, non-progressed subjects) to ADTTE.EVNTDESC,
-# so a DCSREAS override (e.g. apply_fatal_ae's ADVERSE EVENT) stays consistent
-# with the derived time-to-event description.
+# Maps ADSL.DCSREAS to ADTTE.EVNTDESC for genuinely censored subjects only —
+# DEATH is handled separately in create_adtte as a PFS event, not censoring,
+# since death without prior progression is itself the earliest PFS event.
 _DCSREAS_TO_EVNTDESC = {
     "WITHDRAWAL BY SUBJECT": "Withdrawal by Subject",
     "LOST TO FOLLOW-UP": "Lost to Follow-up",
     "ADVERSE EVENT": "Adverse Event",
-    "DEATH": "Death",
 }
 
 
@@ -1352,22 +1351,34 @@ def create_adtte(adsl, ex, events):
     ex_dates["EXSTDTC"] = pd.to_datetime(ex_dates["EXSTDTC"])
     ex_dates["EXENDTC"] = pd.to_datetime(ex_dates["EXENDTC"])
 
-    core = adsl.merge(ex_dates, on="USUBJID").merge(events[["USUBJID", "PROGDT"]], on="USUBJID", how="left")
+    core = adsl.merge(ex_dates, on="USUBJID").merge(
+        events[["USUBJID", "PROGDT", "DIED", "DTHDT"]], on="USUBJID", how="left"
+    )
 
     records = []
     for _, row in core.iterrows():
         progdt = row["PROGDT"]
         startdt = row["EXSTDTC"]
-        if pd.notna(progdt):
-            adt = progdt
-            pfs = (adt - startdt).days
+        has_prog = pd.notna(progdt)
+        has_death = bool(row["DIED"]) and pd.notna(row["DTHDT"])
+
+        if has_prog or has_death:
+            # PFS event: earliest of progression or death. For progressors who
+            # later die, DTHDT is always >= PROGDT (death follows progression
+            # in this model), so this only changes non-progressor deaths.
+            candidates = []
+            if has_prog:
+                candidates.append((progdt, "Disease Progression"))
+            if has_death:
+                candidates.append((row["DTHDT"], "Death"))
+            adt, evntdesc = min(candidates, key=lambda c: c[0])
             cnsr = 0
-            evntdesc = "Disease Progression"
         else:
             adt = row["EXENDTC"]
-            pfs = (adt - startdt).days
-            cnsr = 1
             evntdesc = _DCSREAS_TO_EVNTDESC[row["DCSREAS"]]
+            cnsr = 1
+
+        pfs = (adt - startdt).days
 
         records.append(
             {
