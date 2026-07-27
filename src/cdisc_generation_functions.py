@@ -32,6 +32,7 @@ def _snap_to_scan_day(day):
     n = -(-(day - _FIRST_SCAN_DAY) // _SCAN_INTERVAL_DAYS)  # ceil division
     return _FIRST_SCAN_DAY + _SCAN_INTERVAL_DAYS * n
 
+
 # Tumour dynamics: responder/non-responder model calibrated to match FHIR-published ORR
 # (Trt 18.2%, Pbo 12.3%).  Responders: −12 mm/visit drift; non-responders: +2 mm/visit.
 _TUMOUR = {
@@ -645,9 +646,7 @@ def create_tr(ex, events, dm):
             # Re-enforce the RECIST floor: any measurable (non-zero) lesion must
             # stay >= 5 mm even after topping up or scaling down above.
             measurable = new_sizes[:n_lesions] > 0
-            new_sizes[:n_lesions] = np.where(
-                measurable, np.maximum(_MIN_LESION_MM, new_sizes[:n_lesions]), 0.0
-            )
+            new_sizes[:n_lesions] = np.where(measurable, np.maximum(_MIN_LESION_MM, new_sizes[:n_lesions]), 0.0)
 
             current_sizes = new_sizes
 
