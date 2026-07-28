@@ -1527,11 +1527,10 @@ if __name__ == "__main__":
     tu = create_tu(dm, tr)  # tumor identification; needs TR baselines
     dm = finalize_dm(dm, ex, events)
     ds = create_ds(dm, ex, events)
-    ae_usubjid, ae = apply_fatal_ae(dm, ds)  # guarantees >=1 Placebo death tied to an AE
+    _, ae = apply_fatal_ae(dm, ds)  # guarantees >=1 Placebo death tied to an AE
     fa = create_fa(ds)  # findings about DS disposition events
     relrec = create_relrec(fa, ds)  # links FA records to parent DS records (CG0603)
     adsl = create_adsl(dm, ex, rs, events)
-    adsl.loc[adsl["USUBJID"] == ae_usubjid, "DCSREAS"] = "ADVERSE EVENT"
     adtte = create_adtte(adsl, ex, events)
     tv = create_tv()
     ta = create_ta()
