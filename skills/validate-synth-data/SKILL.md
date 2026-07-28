@@ -158,6 +158,6 @@ The report must follow this template exactly:
 
 | Arm | Observed Median (days) | Target (days) | Tolerance | Deviation | Result |
 |-----|------------------------|---------------|-----------|-----------|--------|
-| Treatment | NNN | 314 | ±63d | +X% | PASS/FAIL |
+| Treatment | NNN | 314 | ±62d | +X% | PASS/FAIL |
 | Placebo | NNN | 155 | ±31d | +X% | PASS/FAIL |
 ```
