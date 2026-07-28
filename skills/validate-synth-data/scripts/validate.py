@@ -1019,10 +1019,12 @@ def main():
     parser.add_argument("--output", default="validation_report.md", help="Output markdown report path")
     args = parser.parse_args()
 
-    # Keep as given (e.g. the "./datasets" default) rather than resolving to an
-    # absolute path — the report embeds this string, and an absolute path would
-    # bake in the invoking user's home directory, breaking reproducibility in CI
-    # and for other contributors.
+    # Don't resolve to an absolute path — the report embeds this string, and an
+    # absolute path would bake in the invoking user's home directory, breaking
+    # reproducibility in CI and for other contributors. (Path() still
+    # normalizes away a leading "./" when stringified, e.g. "./datasets"
+    # becomes "datasets" — the point here is staying relative, not preserving
+    # the exact literal argument.)
     datasets = Path(args.datasets)
     required = ["DM", "EX", "TR", "RS", "DS", "ADSL", "ADTTE"]
     missing = [f for f in required if not (datasets / f"{f}.csv").exists()]
