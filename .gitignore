@@ -19,7 +19,6 @@ build/
 .vscode/
 .idea/
 
-# Claude Code
-CLAUDE.md
-.claude/
-
+# Claude Code local-only files
+.claude/settings.local.json
+.claude/skills/
