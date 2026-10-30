@@ -50,7 +50,7 @@ If you're unfamiliar with CDISC, here's the minimum context:
 **ADaM (Analysis Data Model)** builds analysis-ready datasets on top of SDTM. `ADSL` is the subject-level summary; `ADTTE` is the time-to-event dataset used for survival analysis.
 
 **Key conventions used here:**
-- `USUBJID` uniquely identifies a subject across all domains: `SYNTH-ONC-001-NNNN`
+- `USUBJID` uniquely identifies a subject across all domains: `NCT01797120-NNNN`
 - `TRT01A` is the treatment arm label: `"Treatment"` or `"Placebo"`
 - `CNSR` in ADTTE: `0` = the event occurred (disease progressed), `1` = censored (study ended before progression)
 - Response categories follow **RECIST v1.0**: `PR` (partial response, ≥30% shrinkage), `SD` (stable disease), `PD` (progressive disease, ≥20% growth)
@@ -64,8 +64,9 @@ src/
   cdisc_generation_functions.py   ← all data generation logic lives here
 datasets/
   DM.csv, EX.csv, TR.csv, ...     ← pre-generated outputs (committed)
-protocol/
-  NCT01797120.pdf                 ← original trial protocol (read-only reference)
+docs/
+  protocol/NCT01797120.pdf         ← original trial protocol (read-only reference)
+  sap/SAP_NCT01797120.pdf         ← statistical analysis plan
 results/
   NCT01797120-results.md          ← plain-language results summary
   NCT01797120-results.fhir.json   ← machine-readable FHIR EBM results bundle
@@ -132,8 +133,8 @@ Change `n=200` to generate more or fewer subjects (must be even for 1:1 randomiz
 **Why does the data change each run?**
 The generation uses `numpy` random sampling. Each call to `create_dm()` produces a new random sample. If you need reproducibility, set a seed before calling: `np.random.seed(42)`.
 
-**What is `STUDYID = "SYNTH-ONC-001"`?**
-A made-up study identifier that signals this is synthetic data and prevents confusion with real trial databases.
+**What is `STUDYID = "NCT01797120"`?**
+The ClinicalTrials.gov registry number of the real PrE0102 trial this dataset is modeled on. The subject records themselves are entirely synthetic and do not correspond to any real participant.
 
 **How realistic is the data?**
 The aggregate statistics (PFS medians, response rates) are calibrated to published values. Individual-level records are plausible but not meant to represent any real patient.
@@ -146,6 +147,6 @@ No. This is synthetic data for tooling and demonstration purposes only.
 ## Further Reading
 
 - `README.md` — technical reference for datasets and variables
-- `protocol/NCT01797120.pdf` — full trial protocol
+- `docs/protocol/NCT01797120.pdf` — full trial protocol
 - CDISC SDTM v1.7 Implementation Guide (external)
 - CDISC ADaM ADTTE Guidance (external)
