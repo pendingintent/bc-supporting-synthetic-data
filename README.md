@@ -36,8 +36,9 @@ bc-supporting-synthetic-data/
 │       ├── scripts/validate.py         # 100-check validation script
 │       ├── evals/evals.json            # Skill test prompts
 │       └── references/                 # CDISC rule sets and RECIST 1.1 supplement
-├── protocol/
-│   └── NCT01797120.pdf                 # Original trial protocol
+├── docs/
+│   ├── protocol/NCT01797120.pdf        # Original trial protocol
+│   └── sap/SAP_NCT01797120.pdf         # Statistical analysis plan
 ├── results/
 │   ├── NCT01797120-results.md          # Human-readable results summary
 │   └── NCT01797120-results.fhir.json   # FHIR EBM bundle of published results
@@ -236,4 +237,4 @@ The datasets are generated to conform to the following standards. The `validatio
 
 ## License
 
-Synthetic data only. No patient privacy concerns. Refer to `protocol/NCT01797120.pdf` for the original trial protocol (copyright-exempt for non-commercial use per the RECIST Working Group).
+Synthetic data only. No patient privacy concerns. Refer to `docs/protocol/NCT01797120.pdf` for the original trial protocol (copyright-exempt for non-commercial use per the RECIST Working Group).
