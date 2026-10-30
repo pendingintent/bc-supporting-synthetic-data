@@ -14,7 +14,7 @@ Always use the project venv (`.venv/bin/python`, `.venv/bin/pip`); after adding 
 # Regenerate all CSVs into datasets/ (np.random.seed(0) → deterministic)
 .venv/bin/python src/cdisc_generation_functions.py
 
-# Tests (pytest; ~1s). Single test: pytest tests/test_pipeline_invariants.py::test_sumdiam_equals_sum_of_ldiam
+# Tests (pytest; ~10s; add -m "not slow" to skip the multi-seed calibration tests). Single test: pytest tests/test_pipeline_invariants.py::test_sumdiam_equals_sum_of_ldiam
 .venv/bin/python -m pytest
 
 # Validate (writes validation_report.md)
@@ -27,7 +27,7 @@ Always use the project venv (`.venv/bin/python`, `.venv/bin/pip`); after adding 
 .venv/bin/pre-commit run --all-files
 ```
 
-`tests/` holds the pytest suite (helper unit tests, cross-domain invariants on the seeded pipeline, a check that the committed `datasets/` CSVs equal a fresh regeneration, which fails if you change the generator without regenerating, and `tests/test_validator.py`, which mutation-tests `validate.py`: add a mutation case for each new check and bump `EXPECTED_CHECKS`). `validate.py` is the dataset QC gate and has no single-check CLI flag — each category is a `check_*` function in the script, so to run one, import it and call it with a `Path` to `datasets/`.
+`tests/` holds the pytest suite (helper unit tests, cross-domain invariants on the seeded pipeline, a check that the committed `datasets/` CSVs equal a fresh regeneration, which fails if you change the generator without regenerating, and `tests/test_validator.py`, which mutation-tests `validate.py`: add a mutation case for each new check and bump `EXPECTED_CHECKS`), and `tests/test_calibration.py`, which pools seeds 0-9 and checks PFS medians and ORR against the published trial (`_PROG` and `_TUMOUR` are calibrated to these; re-run it after changing progression, censoring or tumour logic). `validate.py` is the dataset QC gate and has no single-check CLI flag — each category is a `check_*` function in the script, so to run one, import it and call it with a `Path` to `datasets/`.
 
 ## Architecture
 

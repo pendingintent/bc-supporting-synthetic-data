@@ -33,20 +33,24 @@ def _snap_to_scan_day(day):
     return _FIRST_SCAN_DAY + _SCAN_INTERVAL_DAYS * n
 
 
-# Tumour dynamics: responder/non-responder model calibrated to match FHIR-published ORR
-# (Trt 18.2%, Pbo 12.3%).  Responders: −12 mm/visit drift; non-responders: +2 mm/visit.
+# Tumour dynamics: responder/non-responder model calibrated to match the published ORR
+# (Trt 18.2%, Pbo 12.3%; best response CR or PR).  Responders: -12 mm/visit drift;
+# non-responders: +2 mm/visit.  Pooled over seeds 0-39 this gives ORR of about 18.4% / 12.4%
+# (tests/test_calibration.py checks it).  Per-visit measurement noise is kept small (4 mm):
+# at the previous 8 mm, noise alone produced spurious PRs in non-responders (about 15% / 8% ORR with
+# zero responders), which inflated ORR and made it track follow-up length instead of response.
 _TUMOUR = {
     "Treatment": {
+        "resp_frac": 0.22,
+        "drift_resp": -12.0,
+        "drift_nonresp": +2.0,
+        "noise": 4.0,
+    },
+    "Placebo": {
         "resp_frac": 0.21,
         "drift_resp": -12.0,
         "drift_nonresp": +2.0,
-        "noise": 8.0,
-    },
-    "Placebo": {
-        "resp_frac": 0.20,
-        "drift_resp": -12.0,
-        "drift_nonresp": +2.0,
-        "noise": 8.0,
+        "noise": 4.0,
     },
 }
 

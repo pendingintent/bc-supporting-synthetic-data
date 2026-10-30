@@ -127,7 +127,7 @@
 ✓ PASS — DM: all ages in plausible range (18–85) (0 implausible values)
 ✓ PASS — DM: age has realistic variability (stddev > 5 years) (stddev=9.8)
 ✓ PASS — DM: enrollment dates span > 90 days (not all same date) (span=723 days)
-✓ PASS — TR: record counts vary across subjects (not all identical) (25 distinct counts (min=4, max=48))
+✓ PASS — TR: record counts vary across subjects (not all identical) (26 distinct counts (min=4, max=68))
 ✓ PASS — RS: record counts vary across subjects (realistic missingness) (16 distinct counts (min=1, max=16))
 
 ### Category 6 — Duplicate & Study Consistency

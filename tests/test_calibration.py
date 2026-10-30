@@ -63,11 +63,6 @@ def test_treatment_response_rate_exceeds_placebo(runs):
     assert orr["Treatment"] > orr["Placebo"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known calibration gap: pooled ORR is about 26% (Treatment) and 16% (Placebo) vs the 18.2% / 12.3% "
-    "cited in the generator; see issue #13. Remove the marker once _TUMOUR is recalibrated.",
-)
 @pytest.mark.parametrize("arm", ARMS)
 def test_pooled_response_rate_matches_published(runs, arm):
     observed = pooled(runs, "orr")[arm]
