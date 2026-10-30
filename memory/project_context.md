@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-This project generates synthetic clinical trial data (STUDYID: SYNTH-ONC-001) based on the real NCT01797120 PrE0102 Phase II trial — Fulvestrant +/- Everolimus in postmenopausal HR+ metastatic breast cancer. Not real patient data.
+This project generates synthetic clinical trial data (STUDYID: NCT01797120) based on the real NCT01797120 PrE0102 Phase II trial — Fulvestrant +/- Everolimus in postmenopausal HR+ metastatic breast cancer. Not real patient data.
 
 **Why:** Likely for CDISC standards demonstration, tooling testing, or education purposes.
 
