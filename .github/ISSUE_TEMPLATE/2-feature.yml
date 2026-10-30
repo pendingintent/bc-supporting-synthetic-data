@@ -1,7 +1,7 @@
 name: Feature/Enhancement Request
 description: A request for a new Feature or Enhancement
 projects:
-  - pendingintent/bc-supporting-synthetic-data
+  - CDISC 360i Phase III
 type: Feature
 body:
   - type: dropdown
@@ -14,7 +14,7 @@ body:
       options:
         - Additional Domain Request
         - Additional Data Request
-        - Additonal Subjects
+        - Additional Subjects
         - Custom
   - type: textarea
     id: feature-request

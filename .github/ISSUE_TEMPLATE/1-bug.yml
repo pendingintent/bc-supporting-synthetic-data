@@ -1,7 +1,7 @@
 name: Report a Bug
 description: An unexpected error or behavior
 projects:
-  - pendingintent/bc-supporting-synthetic-data
+  - CDISC 360i Phase III
 type: Bug
 body:
   - type: dropdown
@@ -32,7 +32,7 @@ body:
     validations:
       required: false
     attributes:
-      label: Past any screenshots that help demonstrate your issue.
+      label: Paste any screenshots that help demonstrate your issue.
   - type: textarea
     id: files
     validations:
