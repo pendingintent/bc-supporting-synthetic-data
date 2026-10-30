@@ -14,6 +14,9 @@ Always use the project venv (`.venv/bin/python`, `.venv/bin/pip`); after adding 
 # Regenerate all CSVs into datasets/ (np.random.seed(0) → deterministic)
 .venv/bin/python src/cdisc_generation_functions.py
 
+# Tests (pytest; ~1s). Single test: pytest tests/test_pipeline_invariants.py::test_sumdiam_equals_sum_of_ldiam
+.venv/bin/python -m pytest
+
 # Validate (writes validation_report.md)
 .venv/bin/python .claude/skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
 
@@ -24,13 +27,13 @@ Always use the project venv (`.venv/bin/python`, `.venv/bin/pip`); after adding 
 .venv/bin/pre-commit run --all-files
 ```
 
-There is no unit test suite; `validate.py` is the test. It has no single-check CLI flag — each category is a `check_*` function in the script, so to run one, import it and call it with a `Path` to `datasets/`.
+`tests/` holds the pytest suite (helper unit tests, cross-domain invariants on the seeded pipeline, and a check that the committed `datasets/` CSVs equal a fresh regeneration; the last fails if you change the generator without regenerating). `validate.py` is the dataset QC gate and has no single-check CLI flag — each category is a `check_*` function in the script, so to run one, import it and call it with a `Path` to `datasets/`.
 
 ## Architecture
 
 **Generator (`src/cdisc_generation_functions.py`)** — one module, one function per domain, and the `__main__` block defines the required call order because functions consume each other's output:
 
-`create_dm → create_ex → derive_events → finalize_ex → create_tr → derive_rs → create_tu → finalize_dm → create_ds → apply_fatal_ae → create_fa → create_relrec → create_adsl → create_adtte`, plus independent `create_tv` / `create_ta`.
+`generate_all()` in the generator module is the single source of the call order (the CLI and tests both use it): `create_dm → create_ex → derive_events → finalize_ex → create_tr → derive_rs → create_tu → finalize_dm → create_ds → apply_fatal_ae → create_fa → create_relrec → create_adsl → create_adtte`, plus independent `create_tv` / `create_ta`.
 
 - `derive_events` decides per-subject progression/death/censoring; `finalize_ex` and `finalize_dm` are second passes that cap exposure and set death/reference dates after events are known. Don't reorder.
 - Progression dates are snapped onto the tumour-scan schedule (`_FIRST_SCAN_DAY`, `_SCAN_INTERVAL_DAYS`, `_snap_to_scan_day`) so a PD disposition is never earlier than a scan that could observe it. TR scan timing uses the same constants — change them in one place.
