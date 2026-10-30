@@ -30,6 +30,14 @@ def _load(datasets: Path, name: str) -> pd.DataFrame:
     return pd.read_csv(path, dtype=str, keep_default_na=False)
 
 
+def _first_per_key(series: pd.Series) -> pd.Series:
+    """Drop repeated index labels (keep the first) so label-based lookups cannot raise.
+
+    Duplicate keys are reported by their own checks; this stops them crashing unrelated ones.
+    """
+    return series[~series.index.duplicated()]
+
+
 def _num(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
@@ -491,8 +499,8 @@ def check_integrity(datasets: Path) -> list[CheckResult]:
     )
 
     # ADSL TRT01A consistency with DM ARMCD
-    arm_map = dm.set_index("USUBJID")["ARMCD"].map({"TRT": "Treatment", "PLC": "Placebo"})
-    adsl_indexed = adsl.set_index("USUBJID")["TRT01A"]
+    arm_map = _first_per_key(dm.set_index("USUBJID")["ARMCD"].map({"TRT": "Treatment", "PLC": "Placebo"}))
+    adsl_indexed = _first_per_key(adsl.set_index("USUBJID")["TRT01A"])
     common = arm_map.index.intersection(adsl_indexed.index)
     mismatched = (arm_map.loc[common] != adsl_indexed.loc[common]).sum()
     _check(
@@ -604,8 +612,8 @@ def check_recist(datasets: Path) -> list[CheckResult]:
             return "PR" if pct <= -30 else ("PD" if pct >= 20 else "SD")
 
         post_sumd["EXP_RESP"] = post_sumd.apply(_exp_resp, axis=1)
-        rs_keyed = rs.set_index(["USUBJID", "RSDTC"])["RSSTRESC"]
-        sumd_keyed = post_sumd.set_index(["USUBJID", "TRDTC"])["EXP_RESP"]
+        rs_keyed = _first_per_key(rs.set_index(["USUBJID", "RSDTC"])["RSSTRESC"])
+        sumd_keyed = _first_per_key(post_sumd.set_index(["USUBJID", "TRDTC"])["EXP_RESP"])
         common = rs_keyed.index.intersection(sumd_keyed.index)
         if len(common) == 0:
             _check(
@@ -664,7 +672,7 @@ def check_timeline_death(datasets: Path) -> list[CheckResult]:
         f"stddev={dur_std:.0f}d",
     )
 
-    rfst_map = dm.set_index("USUBJID")["RFSTDTC"].apply(dt)
+    rfst_map = _first_per_key(dm.set_index("USUBJID")["RFSTDTC"].apply(dt))
     # rfend_map = dm.set_index("USUBJID")["RFXENDTC"].apply(dt)
 
     ex_stdt = dt(ex["EXSTDTC"])
@@ -781,8 +789,8 @@ def check_timeline_death(datasets: Path) -> list[CheckResult]:
             f"{missing_cause} deaths without cause, {spurious_cause} causes for non-deaths, "
             f"{int(cause_ids.duplicated().sum())} duplicates",
         )
-        cause = fa[fa["FATESTCD"] == "DTHCAUSE"].set_index("USUBJID")["FAORRES"]
-        ae_term = ae[ae["AEOUT"] == "FATAL"].set_index("USUBJID")["AETERM"]
+        cause = _first_per_key(fa[fa["FATESTCD"] == "DTHCAUSE"].set_index("USUBJID")["FAORRES"])
+        ae_term = _first_per_key(ae[ae["AEOUT"] == "FATAL"].set_index("USUBJID")["AETERM"])
         mismatch = int((cause.reindex(ae_term.index) != ae_term).sum())
         _check(
             r,

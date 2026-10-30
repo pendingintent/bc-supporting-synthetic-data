@@ -215,12 +215,27 @@ def test_cross_domain_mutation_is_caught(name, validator, work):
     assert any(expected in f for f in failed), f"expected a failure containing {expected!r}; got {failed}"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="check_integrity raises when DM has a duplicate USUBJID instead of failing a check"
-)
-def test_validator_does_not_crash_on_duplicate_subject(validator, work):
-    edit(work, "DM", lambda d: pd.concat([d, d.iloc[[0]]]))
+DUPLICATE_ROW_DOMAINS = ["DM", "EX", "TU", "TR", "RS", "DS", "AE", "FA", "ADSL", "ADTTE"]
+
+
+@pytest.mark.parametrize("domain", DUPLICATE_ROW_DOMAINS)
+def test_validator_does_not_crash_on_duplicated_row(domain, validator, work):
+    edit(work, domain, lambda d: pd.concat([d, d.iloc[[0]]]))
     assert not any(res.name.startswith("CRASH") for res in run_all(validator, work))
+
+
+@pytest.mark.parametrize(
+    "domain, column, value",
+    [("FA", "FATESTCD", "DTHCAUSE"), ("AE", "AEOUT", "FATAL")],
+)
+def test_validator_does_not_crash_on_duplicated_death_record(domain, column, value, validator, work):
+    edit(work, domain, lambda d: pd.concat([d, d[d[column] == value].iloc[[0]]]))
+    assert not any(res.name.startswith("CRASH") for res in run_all(validator, work))
+
+
+def test_duplicate_subject_in_dm_is_still_reported(validator, work):
+    edit(work, "DM", lambda d: pd.concat([d, d.iloc[[0]]]))
+    assert any("DM: no duplicate USUBJIDs" in f for f in failed_names(validator, work))
 
 
 def test_pfs_fidelity_flags_shifted_medians(validator, work):
