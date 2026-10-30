@@ -1554,13 +1554,20 @@ def create_ta():
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    np.random.seed(0)
+# Internal helper columns that exist on the in-memory frames but are not written to CSV.
+_INTERNAL_COLUMNS = {"DM": ["TRT01A"], "FA": ["_DSSEQ"]}
 
-    out_dir = os.path.join(os.path.dirname(__file__), "..", "datasets")
-    os.makedirs(out_dir, exist_ok=True)
 
-    dm = create_dm(n=200)
+def generate_all(seed=0, n=200):
+    """
+    Run the full generation pipeline and return {domain: DataFrame} in write order.
+    This is the single source of truth for the call order (each step consumes earlier
+    output); the CLI and the tests both go through it. Frames still carry the internal
+    helper columns in _INTERNAL_COLUMNS; write_datasets strips them.
+    """
+    np.random.seed(seed)
+
+    dm = create_dm(n=n)
     ex = create_ex(dm)
     events = derive_events(ex, dm)
     ex = finalize_ex(ex, events, dm)  # cap EX dates at progression
@@ -1577,24 +1584,31 @@ if __name__ == "__main__":
     tv = create_tv()
     ta = create_ta()
 
-    for name, df in [
-        ("DM", dm),
-        ("EX", ex),
-        ("TU", tu),
-        ("TR", tr),
-        ("RS", rs),
-        ("DS", ds),
-        ("AE", ae),
-        ("FA", fa),
-        ("RELREC", relrec),
-        ("ADSL", adsl),
-        ("ADTTE", adtte),
-        ("TV", tv),
-        ("TA", ta),
-    ]:
-        # Strip internal helper columns not written to CSV
-        drop_cols = {"DM": ["TRT01A"], "FA": ["_DSSEQ"]}.get(name, [])
-        out_df = df.drop(columns=drop_cols, errors="ignore")
-        path = os.path.join(out_dir, f"{name}.csv")
-        out_df.to_csv(path, index=False)
+    return {
+        "DM": dm,
+        "EX": ex,
+        "TU": tu,
+        "TR": tr,
+        "RS": rs,
+        "DS": ds,
+        "AE": ae,
+        "FA": fa,
+        "RELREC": relrec,
+        "ADSL": adsl,
+        "ADTTE": adtte,
+        "TV": tv,
+        "TA": ta,
+    }
+
+
+def write_datasets(datasets, out_dir):
+    """Write each frame to <out_dir>/<NAME>.csv, dropping internal helper columns."""
+    os.makedirs(out_dir, exist_ok=True)
+    for name, df in datasets.items():
+        out_df = df.drop(columns=_INTERNAL_COLUMNS.get(name, []), errors="ignore")
+        out_df.to_csv(os.path.join(out_dir, f"{name}.csv"), index=False)
         print(f"Wrote {name}.csv  ({len(out_df)} rows)")
+
+
+if __name__ == "__main__":
+    write_datasets(generate_all(), os.path.join(os.path.dirname(__file__), "..", "datasets"))

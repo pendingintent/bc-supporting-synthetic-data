@@ -140,6 +140,16 @@ ta     = create_ta()
 
 ---
 
+## Running the Tests
+
+```bash
+pytest
+```
+
+The suite in `tests/` runs in about a second: unit tests for the generator helpers, cross-domain invariants on the seeded pipeline output (death/AE/FA linkage, `SUMDIAM` = sum of `LDIAM`, determinism), and a check that the committed `datasets/` CSVs equal a fresh regeneration. If that last test fails, rerun `python src/cdisc_generation_functions.py` and commit the regenerated files. The `Tests` workflow runs `pytest` on every PR.
+
+---
+
 ## Validating the Datasets
 
 A dedicated validation script checks 109 rules across seven categories:
