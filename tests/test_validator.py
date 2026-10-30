@@ -215,7 +215,9 @@ def test_cross_domain_mutation_is_caught(name, validator, work):
     assert any(expected in f for f in failed), f"expected a failure containing {expected!r}; got {failed}"
 
 
-@pytest.mark.xfail(strict=True, reason="check_integrity raises when DM has a duplicate USUBJID instead of failing a check")
+@pytest.mark.xfail(
+    strict=True, reason="check_integrity raises when DM has a duplicate USUBJID instead of failing a check"
+)
 def test_validator_does_not_crash_on_duplicate_subject(validator, work):
     edit(work, "DM", lambda d: pd.concat([d, d.iloc[[0]]]))
     assert not any(res.name.startswith("CRASH") for res in run_all(validator, work))
