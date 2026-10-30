@@ -18,7 +18,7 @@ Always use the project venv (`.venv/bin/python`, `.venv/bin/pip`); after adding 
 .venv/bin/python .claude/skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
 
 # CI: .github/workflows/regenerate-validate.yml regenerates + validates when a PR merges into main or release-v*
-# (fails on any validation failure; opens a follow-up PR if regenerated CSVs differ from the committed ones)
+# (fails on any validation failure; opens a follow-up PR if regenerated CSVs differ from the committed ones, using the REGEN_PR_TOKEN secret so required checks run on it)
 
 # Lint (CI runs pre-commit: black + flake8, line length 120)
 .venv/bin/pre-commit run --all-files
