@@ -146,7 +146,7 @@ ta     = create_ta()
 pytest
 ```
 
-The suite in `tests/` runs in about a second: unit tests for the generator helpers, cross-domain invariants on the seeded pipeline output (death/AE/FA linkage, `SUMDIAM` = sum of `LDIAM`, determinism), and a check that the committed `datasets/` CSVs equal a fresh regeneration. If that last test fails, rerun `python src/cdisc_generation_functions.py` and commit the regenerated files. The `Tests` workflow runs `pytest` on every PR.
+The suite in `tests/` runs in about a second: unit tests for the generator helpers, cross-domain invariants on the seeded pipeline output (death/AE/FA linkage, `SUMDIAM` = sum of `LDIAM`, determinism), a check that the committed `datasets/` CSVs equal a fresh regeneration, and tests of the validator itself (clean data passes, and about 30 deliberately broken copies each fail the expected check). If you add or remove a validator check, update `EXPECTED_CHECKS` in `tests/test_validator.py`. If that last test fails, rerun `python src/cdisc_generation_functions.py` and commit the regenerated files. The `Tests` workflow runs `pytest` on every PR.
 
 ---
 

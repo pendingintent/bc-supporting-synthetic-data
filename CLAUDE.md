@@ -27,7 +27,7 @@ Always use the project venv (`.venv/bin/python`, `.venv/bin/pip`); after adding 
 .venv/bin/pre-commit run --all-files
 ```
 
-`tests/` holds the pytest suite (helper unit tests, cross-domain invariants on the seeded pipeline, and a check that the committed `datasets/` CSVs equal a fresh regeneration; the last fails if you change the generator without regenerating). `validate.py` is the dataset QC gate and has no single-check CLI flag — each category is a `check_*` function in the script, so to run one, import it and call it with a `Path` to `datasets/`.
+`tests/` holds the pytest suite (helper unit tests, cross-domain invariants on the seeded pipeline, a check that the committed `datasets/` CSVs equal a fresh regeneration, which fails if you change the generator without regenerating, and `tests/test_validator.py`, which mutation-tests `validate.py`: add a mutation case for each new check and bump `EXPECTED_CHECKS`). `validate.py` is the dataset QC gate and has no single-check CLI flag — each category is a `check_*` function in the script, so to run one, import it and call it with a `Path` to `datasets/`.
 
 ## Architecture
 
