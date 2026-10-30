@@ -530,6 +530,10 @@ def create_tr(ex, events, dm):
 
         # Baseline SUMDIAM aggregate
         bl_sumd = round(float(sum(baseline_sizes)), 2)
+        # Recorded SUMDIAM sums the rounded LDIAM values, so it equals the sum of the lesions as
+        # written and does not depend on platform float rounding. bl_sumd (unrounded sum) is
+        # kept for the progression-threshold logic so the seeded tumour walk is unchanged.
+        bl_sumd_rec = round(sum(round(float(x), 2) for x in baseline_sizes), 2)
         tr.append(
             _tr_record(
                 STUDYID,
@@ -539,7 +543,7 @@ def create_tr(ex, events, dm):
                 "Sum of Diameter",
                 "TARGET",
                 "",
-                bl_sumd,
+                bl_sumd_rec,
                 bl_dtc,
                 2,
                 "BASELINE",
@@ -671,7 +675,7 @@ def create_tr(ex, events, dm):
                 )
                 seq += 1
 
-            sumd = round(float(sum(current_sizes[:n_lesions])), 2)
+            sumd = round(sum(round(float(x), 2) for x in current_sizes[:n_lesions]), 2)
             tr.append(
                 _tr_record(
                     STUDYID,
