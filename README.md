@@ -146,7 +146,14 @@ ta     = create_ta()
 pytest
 ```
 
-The suite in `tests/` runs in about a second: unit tests for the generator helpers, cross-domain invariants on the seeded pipeline output (death/AE/FA linkage, `SUMDIAM` = sum of `LDIAM`, determinism), a check that the committed `datasets/` CSVs equal a fresh regeneration, and tests of the validator itself (clean data passes, and about 30 deliberately broken copies each fail the expected check). If you add or remove a validator check, update `EXPECTED_CHECKS` in `tests/test_validator.py`. If that last test fails, rerun `python src/cdisc_generation_functions.py` and commit the regenerated files. The `Tests` workflow runs `pytest` on every PR.
+The suite in `tests/` takes about 10 seconds:
+
+- **Helpers and invariants:** unit tests for the generator helpers, and cross-domain invariants on the seeded pipeline output (death/AE/FA linkage, `SUMDIAM` = sum of `LDIAM`, determinism).
+- **Committed data:** each `datasets/*.csv` must equal a fresh regeneration. If this fails, rerun `python src/cdisc_generation_functions.py` and commit the regenerated files.
+- **Validator:** clean data passes every check, and about 30 deliberately broken copies each fail the expected check. If you add or remove a validator check, update `EXPECTED_CHECKS` in `tests/test_validator.py`.
+- **Calibration** (`tests/test_calibration.py`, marked `slow`; skip with `pytest -m "not slow"`): pools seeds 0-9 and compares the generated data with the published trial. PFS medians must be within ±20% of 10.3 / 5.1 months, and the objective response rate (best response CR or PR) within ±3 percentage points of 18.2% (Treatment) / 12.3% (Placebo). If you change the progression, censoring or `_TUMOUR` logic, these show whether the data still match the trial.
+
+The `Tests` workflow runs `pytest` on every PR.
 
 ---
 
