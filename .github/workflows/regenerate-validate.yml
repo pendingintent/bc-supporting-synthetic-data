@@ -20,6 +20,10 @@ jobs:
         with:
           # Check out the merge commit itself, not whatever the base branch has moved on to.
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          # Pushes and PRs made with the default GITHUB_TOKEN do not trigger other workflows, so a
+          # follow-up PR would never get its Tests/Lint checks. Use the REGEN_PR_TOKEN secret (a
+          # personal access token) when set; fall back to GITHUB_TOKEN (PR still opens, no checks).
+          token: ${{ secrets.REGEN_PR_TOKEN || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,10 +44,15 @@ jobs:
         # Runs only if validation passed. Opens (or updates) one PR per base branch when the
         # regenerated files differ from what is committed; no PR when they already match, so
         # merging that PR does not trigger another one.
+        # Warns when REGEN_PR_TOKEN is missing, since the PR then gets no checks.
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.REGEN_PR_TOKEN || github.token }}
+          HAS_REGEN_TOKEN: ${{ secrets.REGEN_PR_TOKEN != '' }}
           BASE_BRANCH: ${{ github.event.pull_request.base.ref || github.ref_name }}
         run: |
+          if [ "$HAS_REGEN_TOKEN" != "true" ]; then
+            echo "::warning::REGEN_PR_TOKEN is not set; the follow-up PR will be created without triggering Tests/Lint"
+          fi
           git add datasets validation_report.md
           if git diff --cached --quiet; then
             echo "Regenerated data matches the committed data; no PR needed."
