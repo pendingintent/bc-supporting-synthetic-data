@@ -15,7 +15,7 @@ Always use the project venv (`.venv/bin/python`, `.venv/bin/pip`); after adding 
 .venv/bin/python src/cdisc_generation_functions.py
 
 # Validate (writes validation_report.md)
-.venv/bin/python skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
+.venv/bin/python .claude/skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
 
 # Lint (CI runs pre-commit: black + flake8, line length 120)
 .venv/bin/pre-commit run --all-files
@@ -35,11 +35,11 @@ There is no unit test suite; `validate.py` is the test. It has no single-check C
 - `TRT01A` is a helper column on DM (needed by TR) and `_DSSEQ` on FA; both are dropped at write time in `__main__`.
 - `apply_fatal_ae` guarantees at least one Placebo death tied to an AE; ADSL `DCSREAS` is intentionally *not* overridden for that subject.
 
-**Validator (`skills/validate-synth-data/scripts/validate.py`)** — seven `check_*` functions (structural, integrity, RECIST, timeline/death, population, duplicates, PFS fidelity) aggregated by `build_report`. Rule references (`references/sdtm-rules.csv`, `adam-rules.csv`, RECIST supplement) back the structural checks. PFS fidelity uses a ±20% tolerance against published medians (with `int()` truncation — keep `SKILL.md` examples consistent with that).
+**Validator (`.claude/skills/validate-synth-data/scripts/validate.py`)** — seven `check_*` functions (structural, integrity, RECIST, timeline/death, population, duplicates, PFS fidelity) aggregated by `build_report`. Rule references (`references/sdtm-rules.csv`, `adam-rules.csv`, RECIST supplement) back the structural checks. PFS fidelity uses a ±20% tolerance against published medians (with `int()` truncation — keep `SKILL.md` examples consistent with that).
 
 ## Keeping skill copies in sync
 
-The skill lives in `skills/validate-synth-data/` (tracked) and is also installed at `~/.claude/skills/validate-synth-data/`. (`.claude/skills/validate-synth-data` is a committed real copy, not a symlink, so it works for Windows teammates; keep it identical to `skills/validate-synth-data`.) When you edit any file in one, mirror the change to the others without being asked. Keep the check count in `SKILL.md` and README in step with `validate.py` (these have drifted before: README says 100, SKILL.md says 105).
+The skill lives only in `.claude/skills/validate-synth-data/` (tracked; a real directory, not a symlink, so it works for Windows teammates). It is also installed at `~/.claude/skills/validate-synth-data/`; when you edit any file in the project copy, mirror the change to the installed copy without being asked. Keep the check count in `SKILL.md` and README in step with `validate.py`.
 
 ## Workflow notes
 
