@@ -39,7 +39,7 @@ There is no unit test suite; `validate.py` is the test. It has no single-check C
 
 ## Keeping skill copies in sync
 
-The skill lives in `skills/validate-synth-data/` (tracked) and is also installed at `~/.claude/skills/validate-synth-data/`. (`.claude/skills/validate-synth-data` is a committed relative symlink to `skills/validate-synth-data`, so teammates get the project skill automatically.) When you edit any file in one, mirror the change to the others without being asked. Keep the check count in `SKILL.md` and README in step with `validate.py` (these have drifted before: README says 100, SKILL.md says 105).
+The skill lives in `skills/validate-synth-data/` (tracked) and is also installed at `~/.claude/skills/validate-synth-data/`. (`.claude/skills/validate-synth-data` is a committed real copy, not a symlink, so it works for Windows teammates; keep it identical to `skills/validate-synth-data`.) When you edit any file in one, mirror the change to the others without being asked. Keep the check count in `SKILL.md` and README in step with `validate.py` (these have drifted before: README says 100, SKILL.md says 105).
 
 ## Workflow notes
 
