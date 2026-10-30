@@ -61,9 +61,11 @@ Compare against what the change should touch (e.g. an FA-only change should leav
 RS, ADSL, ADTTE byte-identical). An unexpected diff in another dataset usually means an
 accidental extra random draw or a reordered call.
 
-## 5. Validate
+## 5. Test and validate
 
-Use the `validate-synth-data` skill, or directly:
+Run `.venv/bin/python -m pytest` first. `tests/test_committed_data.py` fails if the committed CSVs differ from a fresh regeneration, so it also confirms you regenerated and committed the data. If you add a function, route it through `generate_all()` and add an invariant test for any new cross-domain relationship.
+
+Then use the `validate-synth-data` skill, or run directly:
 
 ```bash
 .venv/bin/python .claude/skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
