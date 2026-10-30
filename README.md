@@ -1,5 +1,8 @@
 # Synthetic Oncology Clinical Trial Dataset
 
+[![Lint](https://github.com/pendingintent/bc-supporting-synthetic-data/actions/workflows/lint.yml/badge.svg)](https://github.com/pendingintent/bc-supporting-synthetic-data/actions/workflows/lint.yml)
+[![Regenerate and validate synthetic data](https://github.com/pendingintent/bc-supporting-synthetic-data/actions/workflows/regenerate-validate.yml/badge.svg)](https://github.com/pendingintent/bc-supporting-synthetic-data/actions/workflows/regenerate-validate.yml)
+
 Synthetic CDISC-compliant datasets modeled after **NCT01797120 (PrE0102)** — a Phase II randomized trial of Fulvestrant ± Everolimus in postmenopausal HR+ metastatic breast cancer.
 
 > **All data is purely synthetic.** Study ID `NCT01797120`. No real patient data is present in this repository.
