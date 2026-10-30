@@ -1,7 +1,7 @@
 # Synthetic Dataset Validation Report
 **Study:** NCT01797120  
 **Datasets path:** datasets  
-**Generated:** 2026-07-28  
+**Generated:** 2026-10-30  
 **N subjects:** 200
 
 ## Summary
@@ -11,11 +11,11 @@
 | Category 1 — CDISC Structural | 54 | 54 | 0 |
 | Category 2 — Cross-domain Integrity | 16 | 16 | 0 |
 | Category 3 — RECIST Derivation | 7 | 7 | 0 |
-| Category 4 — Timeline & Death Logic | 13 | 13 | 0 |
+| Category 4 — Timeline & Death Logic | 17 | 17 | 0 |
 | Category 5 — Population Distribution | 5 | 5 | 0 |
 | Category 6 — Duplicate & Study Consistency | 8 | 8 | 0 |
 | Category 7 — PFS Fidelity | 2 | 2 | 0 |
-| **Total** | **105** | **105** | **0** |
+| **Total** | **109** | **109** | **0** |
 
 **Overall: **PASS ✓****
 
@@ -116,6 +116,10 @@
 ✓ PASS — RS: no records after death (RSDTC ≤ DTHDTC) (0 records after death)
 ✓ PASS — EX: no records starting after death (EXSTDTC ≤ DTHDTC) (0 records after death)
 ✓ PASS — DM/DS: DTHFL=Y ↔ DS DEATH record consistent (0 missing, 0 spurious DS DEATH records)
+✓ PASS — AE/DM: every AEOUT=FATAL subject has DTHFL=Y (0 fatal AE subjects without DTHFL=Y (1 fatal AEs, 131 deaths))
+✓ PASS — AE: AESDTH=Y ↔ AEOUT=FATAL (0 subjects where AESDTH and AEOUT disagree)
+✓ PASS — DM/FA: every DTHFL=Y subject has exactly one FA DTHCAUSE record (0 deaths without cause, 0 causes for non-deaths, 0 duplicates)
+✓ PASS — AE/FA: DTHCAUSE equals AETERM for fatal AE subjects (0 fatal AE subjects with a different DTHCAUSE)
 ✓ PASS — EX: EXSTDTC ≤ EXENDTC (0 records with start after end)
 ✓ PASS — All domains: no dates beyond study end (2026-12-31) (0 future dates)
 
