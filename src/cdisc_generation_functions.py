@@ -33,20 +33,24 @@ def _snap_to_scan_day(day):
     return _FIRST_SCAN_DAY + _SCAN_INTERVAL_DAYS * n
 
 
-# Tumour dynamics: responder/non-responder model calibrated to match FHIR-published ORR
-# (Trt 18.2%, Pbo 12.3%).  Responders: −12 mm/visit drift; non-responders: +2 mm/visit.
+# Tumour dynamics: responder/non-responder model calibrated to match the published ORR
+# (Trt 18.2%, Pbo 12.3%; best response CR or PR).  Responders: -12 mm/visit drift;
+# non-responders: +2 mm/visit.  Pooled over seeds 0-39 this gives ORR of about 18.4% / 12.4%
+# (tests/test_calibration.py checks it).  Per-visit measurement noise is kept small (4 mm):
+# at the previous 8 mm, noise alone produced spurious PRs in non-responders (about 15% / 8% ORR with
+# zero responders), which inflated ORR and made it track follow-up length instead of response.
 _TUMOUR = {
     "Treatment": {
+        "resp_frac": 0.22,
+        "drift_resp": -12.0,
+        "drift_nonresp": +2.0,
+        "noise": 4.0,
+    },
+    "Placebo": {
         "resp_frac": 0.21,
         "drift_resp": -12.0,
         "drift_nonresp": +2.0,
-        "noise": 8.0,
-    },
-    "Placebo": {
-        "resp_frac": 0.20,
-        "drift_resp": -12.0,
-        "drift_nonresp": +2.0,
-        "noise": 8.0,
+        "noise": 4.0,
     },
 }
 
@@ -530,6 +534,10 @@ def create_tr(ex, events, dm):
 
         # Baseline SUMDIAM aggregate
         bl_sumd = round(float(sum(baseline_sizes)), 2)
+        # Recorded SUMDIAM sums the rounded LDIAM values, so it equals the sum of the lesions as
+        # written and does not depend on platform float rounding. bl_sumd (unrounded sum) is
+        # kept for the progression-threshold logic so the seeded tumour walk is unchanged.
+        bl_sumd_rec = round(sum(round(float(x), 2) for x in baseline_sizes), 2)
         tr.append(
             _tr_record(
                 STUDYID,
@@ -539,7 +547,7 @@ def create_tr(ex, events, dm):
                 "Sum of Diameter",
                 "TARGET",
                 "",
-                bl_sumd,
+                bl_sumd_rec,
                 bl_dtc,
                 2,
                 "BASELINE",
@@ -671,7 +679,7 @@ def create_tr(ex, events, dm):
                 )
                 seq += 1
 
-            sumd = round(float(sum(current_sizes[:n_lesions])), 2)
+            sumd = round(sum(round(float(x), 2) for x in current_sizes[:n_lesions]), 2)
             tr.append(
                 _tr_record(
                     STUDYID,
@@ -1216,11 +1224,30 @@ def apply_fatal_ae(dm, ds):
 # ── FA ────────────────────────────────────────────────────────────────────────
 
 
-def create_fa(ds):
+def _death_cause(usubjid, ds, ae):
+    """
+    Cause of death for one deceased subject. AE holds only serious AEs, so a
+    death is attributed to the AE term when a fatal AE exists; otherwise to
+    DISEASE PROGRESSION if the subject has a PROGRESSIVE DISEASE disposition,
+    else UNKNOWN (cause not captured). Deterministic: no random draws.
+    """
+    fatal = ae[(ae["USUBJID"] == usubjid) & (ae["AEOUT"] == "FATAL")]
+    if len(fatal):
+        return fatal.iloc[0]["AETERM"]
+    if ((ds["USUBJID"] == usubjid) & (ds["DSDECOD"] == "PROGRESSIVE DISEASE")).any():
+        return "DISEASE PROGRESSION"
+    return "UNKNOWN"
+
+
+def create_fa(ds, ae):
     """
     FA domain: Findings About — satisfies CG0603, which requires that for every
     DS record with a non-null DSDECOD there is a corresponding FA record where
     FAOBJ = DSDECOD.
+
+    Every DS DEATH record also gets a FATESTCD=DTHCAUSE record carrying the cause
+    of death in FAORRES. This is how deaths stay explained in the data although
+    AE records only serious AEs (so most DM.DTHFL=Y subjects have no AE record).
     """
     fa_rows = []
     seq = 1
@@ -1242,6 +1269,25 @@ def create_fa(ds):
             }
         )
         seq += 1
+        if row["DSDECOD"] == "DEATH":
+            cause = _death_cause(row["USUBJID"], ds, ae)
+            fa_rows.append(
+                {
+                    "STUDYID": STUDYID,
+                    "DOMAIN": "FA",
+                    "USUBJID": row["USUBJID"],
+                    "FASEQ": seq,
+                    "_DSSEQ": row["DSSEQ"],
+                    "FATESTCD": "DTHCAUSE",
+                    "FATEST": "Cause of Death",
+                    "FAOBJ": "DEATH",
+                    "FAORRES": cause,
+                    "FASTRESC": cause,
+                    "EPOCH": row["EPOCH"],
+                    "FADTC": row["DSSTDTC"],
+                }
+            )
+            seq += 1
     return pd.DataFrame(fa_rows)
 
 
@@ -1512,13 +1558,20 @@ def create_ta():
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    np.random.seed(0)
+# Internal helper columns that exist on the in-memory frames but are not written to CSV.
+_INTERNAL_COLUMNS = {"DM": ["TRT01A"], "FA": ["_DSSEQ"]}
 
-    out_dir = os.path.join(os.path.dirname(__file__), "..", "datasets")
-    os.makedirs(out_dir, exist_ok=True)
 
-    dm = create_dm(n=200)
+def generate_all(seed=0, n=200):
+    """
+    Run the full generation pipeline and return {domain: DataFrame} in write order.
+    This is the single source of truth for the call order (each step consumes earlier
+    output); the CLI and the tests both go through it. Frames still carry the internal
+    helper columns in _INTERNAL_COLUMNS; write_datasets strips them.
+    """
+    np.random.seed(seed)
+
+    dm = create_dm(n=n)
     ex = create_ex(dm)
     events = derive_events(ex, dm)
     ex = finalize_ex(ex, events, dm)  # cap EX dates at progression
@@ -1528,31 +1581,38 @@ if __name__ == "__main__":
     dm = finalize_dm(dm, ex, events)
     ds = create_ds(dm, ex, events)
     _, ae = apply_fatal_ae(dm, ds)  # guarantees >=1 Placebo death tied to an AE
-    fa = create_fa(ds)  # findings about DS disposition events
+    fa = create_fa(ds, ae)  # findings about DS disposition events + cause of death
     relrec = create_relrec(fa, ds)  # links FA records to parent DS records (CG0603)
     adsl = create_adsl(dm, ex, rs, events)
     adtte = create_adtte(adsl, ex, events)
     tv = create_tv()
     ta = create_ta()
 
-    for name, df in [
-        ("DM", dm),
-        ("EX", ex),
-        ("TU", tu),
-        ("TR", tr),
-        ("RS", rs),
-        ("DS", ds),
-        ("AE", ae),
-        ("FA", fa),
-        ("RELREC", relrec),
-        ("ADSL", adsl),
-        ("ADTTE", adtte),
-        ("TV", tv),
-        ("TA", ta),
-    ]:
-        # Strip internal helper columns not written to CSV
-        drop_cols = {"DM": ["TRT01A"], "FA": ["_DSSEQ"]}.get(name, [])
-        out_df = df.drop(columns=drop_cols, errors="ignore")
-        path = os.path.join(out_dir, f"{name}.csv")
-        out_df.to_csv(path, index=False)
+    return {
+        "DM": dm,
+        "EX": ex,
+        "TU": tu,
+        "TR": tr,
+        "RS": rs,
+        "DS": ds,
+        "AE": ae,
+        "FA": fa,
+        "RELREC": relrec,
+        "ADSL": adsl,
+        "ADTTE": adtte,
+        "TV": tv,
+        "TA": ta,
+    }
+
+
+def write_datasets(datasets, out_dir):
+    """Write each frame to <out_dir>/<NAME>.csv, dropping internal helper columns."""
+    os.makedirs(out_dir, exist_ok=True)
+    for name, df in datasets.items():
+        out_df = df.drop(columns=_INTERNAL_COLUMNS.get(name, []), errors="ignore")
+        out_df.to_csv(os.path.join(out_dir, f"{name}.csv"), index=False)
         print(f"Wrote {name}.csv  ({len(out_df)} rows)")
+
+
+if __name__ == "__main__":
+    write_datasets(generate_all(), os.path.join(os.path.dirname(__file__), "..", "datasets"))

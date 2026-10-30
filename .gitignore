@@ -19,6 +19,5 @@ build/
 .vscode/
 .idea/
 
-# Claude Code local-only files
+# Claude Code local-only file
 .claude/settings.local.json
-.claude/skills/

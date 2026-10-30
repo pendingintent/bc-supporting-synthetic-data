@@ -1,0 +1,85 @@
+name: Regenerate and validate synthetic data
+
+on:
+  # Runs when a PR is merged into main or a release-v* branch.
+  pull_request:
+    types: [closed]
+    branches: ["main", "release-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  regenerate-validate:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the merge commit itself, not whatever the base branch has moved on to.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          # Pushes and PRs made with the default GITHUB_TOKEN do not trigger other workflows, so a
+          # follow-up PR would never get its Tests/Lint checks. Use the REGEN_PR_TOKEN secret (a
+          # personal access token) when set; fall back to GITHUB_TOKEN (PR still opens, no checks).
+          token: ${{ secrets.REGEN_PR_TOKEN || github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Regenerate datasets
+        run: python src/cdisc_generation_functions.py
+
+      - name: Validate datasets
+        run: python .claude/skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
+
+      - name: Open follow-up PR with regenerated data
+        # Runs only if validation passed. Opens (or updates) one PR per base branch when the
+        # regenerated files differ from what is committed; no PR when they already match, so
+        # merging that PR does not trigger another one.
+        # Warns when REGEN_PR_TOKEN is missing, since the PR then gets no checks.
+        env:
+          GH_TOKEN: ${{ secrets.REGEN_PR_TOKEN || github.token }}
+          HAS_REGEN_TOKEN: ${{ secrets.REGEN_PR_TOKEN != '' }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref || github.ref_name }}
+        run: |
+          if [ "$HAS_REGEN_TOKEN" != "true" ]; then
+            echo "::warning::REGEN_PR_TOKEN is not set; the follow-up PR will be created without triggering Tests/Lint"
+          fi
+          git add datasets validation_report.md
+          if git diff --cached --quiet; then
+            echo "Regenerated data matches the committed data; no PR needed."
+            exit 0
+          fi
+          branch="regenerated-data/${BASE_BRANCH}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git commit -m "Regenerate synthetic datasets after merge to ${BASE_BRANCH}"
+          git push --force origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --base "$BASE_BRANCH" --state open --json number -q '.[0].number')" ]; then
+            gh pr create --base "$BASE_BRANCH" --head "$branch" \
+              --title "Regenerate synthetic datasets (${BASE_BRANCH})" \
+              --body "Automated: regenerating from \`${BASE_BRANCH}\` at ${GITHUB_SHA} produced datasets that differ from the committed \`datasets/\`. Validation passed. Review and merge to keep the committed data in sync with the generator."
+          fi
+
+      - name: Publish validation report to job summary
+        if: always()
+        run: |
+          if [ -f validation_report.md ]; then cat validation_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload regenerated datasets and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-data-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            datasets/
+            validation_report.md

@@ -1,5 +1,8 @@
 # Synthetic Oncology Clinical Trial Dataset
 
+[![Lint](https://github.com/pendingintent/bc-supporting-synthetic-data/actions/workflows/lint.yml/badge.svg)](https://github.com/pendingintent/bc-supporting-synthetic-data/actions/workflows/lint.yml)
+[![Regenerate and validate synthetic data](https://github.com/pendingintent/bc-supporting-synthetic-data/actions/workflows/regenerate-validate.yml/badge.svg)](https://github.com/pendingintent/bc-supporting-synthetic-data/actions/workflows/regenerate-validate.yml)
+
 Synthetic CDISC-compliant datasets modeled after **NCT01797120 (PrE0102)** — a Phase II randomized trial of Fulvestrant ± Everolimus in postmenopausal HR+ metastatic breast cancer.
 
 > **All data is purely synthetic.** Study ID `NCT01797120`. No real patient data is present in this repository.
@@ -27,15 +30,17 @@ bc-supporting-synthetic-data/
 ├── .github/
 │   └── workflows/
 │       └── lint.yml                    # GitHub Actions: black + flake8 on every push/PR
+├── .claude/
+│   ├── settings.json                   # Shared Claude Code project settings
+│   └── skills/
+│       └── validate-synth-data/        # Claude Code skill for dataset validation
+│           ├── SKILL.md                # Skill definition and workflow
+│           ├── scripts/validate.py     # 109-check validation script
+│           ├── evals/evals.json        # Skill test prompts
+│           └── references/             # CDISC rule sets and RECIST 1.1 supplement
 ├── src/
 │   └── cdisc_generation_functions.py   # Python functions that generate all datasets
 ├── datasets/                           # Generated CDISC CSV files (see Datasets section)
-├── skills/
-│   └── validate-synth-data/            # Claude Code skill for dataset validation
-│       ├── SKILL.md                    # Skill definition and workflow
-│       ├── scripts/validate.py         # 100-check validation script
-│       ├── evals/evals.json            # Skill test prompts
-│       └── references/                 # CDISC rule sets and RECIST 1.1 supplement
 ├── docs/
 │   ├── protocol/NCT01797120.pdf        # Original trial protocol
 │   └── sap/SAP_NCT01797120.pdf         # Statistical analysis plan
@@ -46,7 +51,7 @@ bc-supporting-synthetic-data/
 ├── ONBOARDING.md                       # Onboarding guide for new contributors
 ├── requirements.txt                    # Python dependencies
 ├── setup.cfg                           # Flake8 and black configuration (max-line-length=120)
-└── validation_report.md                # Latest validation output (100/100 checks)
+└── validation_report.md                # Latest validation output (109/109 checks)
 ```
 
 ---
@@ -63,8 +68,8 @@ bc-supporting-synthetic-data/
 | `TR` | `TR.csv` | Tumor Results — per-lesion LDIAM and visit-level SUMDIAM measurements |
 | `RS` | `RS.csv` | Disease Response — CR/PR/SD/PD/NE derived from SUMDIAM per RECIST 1.1 |
 | `DS` | `DS.csv` | Disposition — informed consent, randomization, treatment stop, study end |
-| `AE` | `AE.csv` | Adverse Events — fatal SAE (`AESER`, `AESDTH`, `AEOUT="FATAL"`) for one Placebo subject's death |
-| `FA` | `FA.csv` | Findings About — occurrence indicators for DS disposition/milestone events (`FAOBJ = DSDECOD`) |
+| `AE` | `AE.csv` | Adverse Events — fatal SAE (`AESER`, `AESDTH`, `AEOUT="FATAL"`) for one Placebo subject's death; AE holds serious AEs only, so the other deaths (`DM.DTHFL=Y`) are explained by `FA` `DTHCAUSE` |
+| `FA` | `FA.csv` | Findings About — occurrence indicators for DS disposition/milestone events (`FAOBJ = DSDECOD`), plus a `DTHCAUSE` record (cause of death in `FAORRES`) for every death |
 | `RELREC` | `RELREC.csv` | Related Records — links FA and DS records per subject |
 | `TV` | `TV.csv` | Trial Visits — planned visit schedule through ~18 cycles |
 | `TA` | `TA.csv` | Trial Arms — SCREENING / INDUCTION / CONTINUATION / FOLLOW-UP epochs |
@@ -135,9 +140,26 @@ ta     = create_ta()
 
 ---
 
+## Running the Tests
+
+```bash
+pytest
+```
+
+The suite in `tests/` takes about 10 seconds:
+
+- **Helpers and invariants:** unit tests for the generator helpers, and cross-domain invariants on the seeded pipeline output (death/AE/FA linkage, `SUMDIAM` = sum of `LDIAM`, determinism).
+- **Committed data:** each `datasets/*.csv` must equal a fresh regeneration. If this fails, rerun `python src/cdisc_generation_functions.py` and commit the regenerated files.
+- **Validator:** clean data passes every check, and about 30 deliberately broken copies each fail the expected check. If you add or remove a validator check, update `EXPECTED_CHECKS` in `tests/test_validator.py`.
+- **Calibration** (`tests/test_calibration.py`, marked `slow`; skip with `pytest -m "not slow"`): pools seeds 0-9 and compares the generated data with the published trial. PFS medians must be within ±20% of 10.3 / 5.1 months, and the objective response rate (best response CR or PR) within ±3 percentage points of 18.2% (Treatment) / 12.3% (Placebo). If you change the progression, censoring or `_TUMOUR` logic, these show whether the data still match the trial.
+
+The `Tests` workflow runs `pytest` on every PR.
+
+---
+
 ## Validating the Datasets
 
-A dedicated validation script checks 100 rules across seven categories:
+A dedicated validation script checks 109 rules across seven categories:
 
 | Category | Checks |
 |---|---|
@@ -152,7 +174,7 @@ A dedicated validation script checks 100 rules across seven categories:
 ### Run directly
 
 ```bash
-python skills/validate-synth-data/scripts/validate.py \
+python .claude/skills/validate-synth-data/scripts/validate.py \
   --datasets datasets/ \
   --output validation_report.md
 ```
@@ -171,7 +193,7 @@ Claude will run the script and present the report with plain-language explanatio
 
 ## Claude Code Setup
 
-This project includes a Claude Code skill (`skills/validate-synth-data/`) that adds dataset validation as a natural-language command. To activate it:
+This project ships a Claude Code skill (`.claude/skills/validate-synth-data/`) that adds dataset validation as a natural-language command. Claude Code loads project skills from `.claude/skills/` automatically, so no install step is needed.
 
 ### 1. Install Claude Code
 
@@ -181,19 +203,7 @@ npm install -g @anthropic-ai/claude-code
 
 Or download the desktop app from [claude.ai/code](https://claude.ai/code).
 
-### 2. Install the skill
-
-Copy (or symlink) the skill into your Claude Code skills directory:
-
-```bash
-# Copy
-cp -r skills/validate-synth-data ~/.claude/skills/validate-synth-data
-
-# Or symlink (changes in the repo are reflected immediately)
-ln -s "$(pwd)/skills/validate-synth-data" ~/.claude/skills/validate-synth-data
-```
-
-### 3. Open the project in Claude Code
+### 2. Open the project in Claude Code
 
 ```bash
 claude  # from the project root
@@ -206,19 +216,19 @@ In the Claude session, run:
 
 This will prompt you for instructions and create the `CLAUDE.md` file.
 
-Claude will pick up the skill from `~/.claude/skills/`.
+Claude loads the skill from `.claude/skills/` in the project.
 
-### 4. Verify the skill is active
+### 3. Verify the skill is active
 
 In the Claude Code session, run:
 
 > *"validate my datasets"*
 
-You should see a report confirming 100/100 checks pass against the committed datasets.
+You should see a report confirming 109/109 checks pass against the committed datasets.
 
 ### Updating the skill
 
-If you modify `skills/validate-synth-data/scripts/validate.py` and used a symlink, the changes are live immediately. If you copied, re-run the `cp` command above.
+Edit the files under `.claude/skills/validate-synth-data/` directly; changes apply the next time Claude Code loads the skill.
 
 ---
 

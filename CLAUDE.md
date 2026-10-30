@@ -14,20 +14,26 @@ Always use the project venv (`.venv/bin/python`, `.venv/bin/pip`); after adding 
 # Regenerate all CSVs into datasets/ (np.random.seed(0) → deterministic)
 .venv/bin/python src/cdisc_generation_functions.py
 
+# Tests (pytest; ~10s; add -m "not slow" to skip the multi-seed calibration tests). Single test: pytest tests/test_pipeline_invariants.py::test_sumdiam_equals_sum_of_ldiam
+.venv/bin/python -m pytest
+
 # Validate (writes validation_report.md)
-.venv/bin/python skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
+.venv/bin/python .claude/skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
+
+# CI: .github/workflows/regenerate-validate.yml regenerates + validates when a PR merges into main or release-v*
+# (fails on any validation failure; opens a follow-up PR if regenerated CSVs differ from the committed ones, using the REGEN_PR_TOKEN secret so required checks run on it)
 
 # Lint (CI runs pre-commit: black + flake8, line length 120)
 .venv/bin/pre-commit run --all-files
 ```
 
-There is no unit test suite; `validate.py` is the test. It has no single-check CLI flag — each category is a `check_*` function in the script, so to run one, import it and call it with a `Path` to `datasets/`.
+`tests/` holds the pytest suite (helper unit tests, cross-domain invariants on the seeded pipeline, a check that the committed `datasets/` CSVs equal a fresh regeneration, which fails if you change the generator without regenerating, and `tests/test_validator.py`, which mutation-tests `validate.py`: add a mutation case for each new check and bump `EXPECTED_CHECKS`), and `tests/test_calibration.py`, which pools seeds 0-9 and checks PFS medians and ORR against the published trial (`_PROG` and `_TUMOUR` are calibrated to these; re-run it after changing progression, censoring or tumour logic). `validate.py` is the dataset QC gate and has no single-check CLI flag — each category is a `check_*` function in the script, so to run one, import it and call it with a `Path` to `datasets/`.
 
 ## Architecture
 
 **Generator (`src/cdisc_generation_functions.py`)** — one module, one function per domain, and the `__main__` block defines the required call order because functions consume each other's output:
 
-`create_dm → create_ex → derive_events → finalize_ex → create_tr → derive_rs → create_tu → finalize_dm → create_ds → apply_fatal_ae → create_fa → create_relrec → create_adsl → create_adtte`, plus independent `create_tv` / `create_ta`.
+`generate_all()` in the generator module is the single source of the call order (the CLI and tests both use it): `create_dm → create_ex → derive_events → finalize_ex → create_tr → derive_rs → create_tu → finalize_dm → create_ds → apply_fatal_ae → create_fa → create_relrec → create_adsl → create_adtte`, plus independent `create_tv` / `create_ta`.
 
 - `derive_events` decides per-subject progression/death/censoring; `finalize_ex` and `finalize_dm` are second passes that cap exposure and set death/reference dates after events are known. Don't reorder.
 - Progression dates are snapped onto the tumour-scan schedule (`_FIRST_SCAN_DAY`, `_SCAN_INTERVAL_DAYS`, `_snap_to_scan_day`) so a PD disposition is never earlier than a scan that could observe it. TR scan timing uses the same constants — change them in one place.
@@ -35,11 +41,11 @@ There is no unit test suite; `validate.py` is the test. It has no single-check C
 - `TRT01A` is a helper column on DM (needed by TR) and `_DSSEQ` on FA; both are dropped at write time in `__main__`.
 - `apply_fatal_ae` guarantees at least one Placebo death tied to an AE; ADSL `DCSREAS` is intentionally *not* overridden for that subject.
 
-**Validator (`skills/validate-synth-data/scripts/validate.py`)** — seven `check_*` functions (structural, integrity, RECIST, timeline/death, population, duplicates, PFS fidelity) aggregated by `build_report`. Rule references (`references/sdtm-rules.csv`, `adam-rules.csv`, RECIST supplement) back the structural checks. PFS fidelity uses a ±20% tolerance against published medians (with `int()` truncation — keep `SKILL.md` examples consistent with that).
+**Validator (`.claude/skills/validate-synth-data/scripts/validate.py`)** — seven `check_*` functions (structural, integrity, RECIST, timeline/death, population, duplicates, PFS fidelity) aggregated by `build_report`. Rule references (`references/sdtm-rules.csv`, `adam-rules.csv`, RECIST supplement) back the structural checks. PFS fidelity uses a ±20% tolerance against published medians (with `int()` truncation — keep `SKILL.md` examples consistent with that).
 
 ## Keeping skill copies in sync
 
-The skill lives in `skills/validate-synth-data/` (tracked) and is also installed at `~/.claude/skills/validate-synth-data/`. (`.claude/skills/validate-synth-data` locally is a symlink to the tracked copy and is not committed.) When you edit any file in one, mirror the change to the others without being asked. Keep the check count in `SKILL.md` and README in step with `validate.py` (these have drifted before: README says 100, SKILL.md says 105).
+The skill lives only in `.claude/skills/validate-synth-data/` (tracked; a real directory, not a symlink, so it works for Windows teammates). It is also installed at `~/.claude/skills/validate-synth-data/`; when you edit any file in the project copy, mirror the change to the installed copy without being asked. Keep the check count in `SKILL.md` and README in step with `validate.py`.
 
 ## Workflow notes
 

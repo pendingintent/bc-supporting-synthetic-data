@@ -30,6 +30,14 @@ def _load(datasets: Path, name: str) -> pd.DataFrame:
     return pd.read_csv(path, dtype=str, keep_default_na=False)
 
 
+def _first_per_key(series: pd.Series) -> pd.Series:
+    """Drop repeated index labels (keep the first) so label-based lookups cannot raise.
+
+    Duplicate keys are reported by their own checks; this stops them crashing unrelated ones.
+    """
+    return series[~series.index.duplicated()]
+
+
 def _num(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
@@ -491,8 +499,8 @@ def check_integrity(datasets: Path) -> list[CheckResult]:
     )
 
     # ADSL TRT01A consistency with DM ARMCD
-    arm_map = dm.set_index("USUBJID")["ARMCD"].map({"TRT": "Treatment", "PLC": "Placebo"})
-    adsl_indexed = adsl.set_index("USUBJID")["TRT01A"]
+    arm_map = _first_per_key(dm.set_index("USUBJID")["ARMCD"].map({"TRT": "Treatment", "PLC": "Placebo"}))
+    adsl_indexed = _first_per_key(adsl.set_index("USUBJID")["TRT01A"])
     common = arm_map.index.intersection(adsl_indexed.index)
     mismatched = (arm_map.loc[common] != adsl_indexed.loc[common]).sum()
     _check(
@@ -604,8 +612,8 @@ def check_recist(datasets: Path) -> list[CheckResult]:
             return "PR" if pct <= -30 else ("PD" if pct >= 20 else "SD")
 
         post_sumd["EXP_RESP"] = post_sumd.apply(_exp_resp, axis=1)
-        rs_keyed = rs.set_index(["USUBJID", "RSDTC"])["RSSTRESC"]
-        sumd_keyed = post_sumd.set_index(["USUBJID", "TRDTC"])["EXP_RESP"]
+        rs_keyed = _first_per_key(rs.set_index(["USUBJID", "RSDTC"])["RSSTRESC"])
+        sumd_keyed = _first_per_key(post_sumd.set_index(["USUBJID", "TRDTC"])["EXP_RESP"])
         common = rs_keyed.index.intersection(sumd_keyed.index)
         if len(common) == 0:
             _check(
@@ -664,7 +672,7 @@ def check_timeline_death(datasets: Path) -> list[CheckResult]:
         f"stddev={dur_std:.0f}d",
     )
 
-    rfst_map = dm.set_index("USUBJID")["RFSTDTC"].apply(dt)
+    rfst_map = _first_per_key(dm.set_index("USUBJID")["RFSTDTC"].apply(dt))
     # rfend_map = dm.set_index("USUBJID")["RFXENDTC"].apply(dt)
 
     ex_stdt = dt(ex["EXSTDTC"])
@@ -750,6 +758,46 @@ def check_timeline_death(datasets: Path) -> list[CheckResult]:
         missing_ds == 0 and spurious_ds == 0,
         f"{missing_ds} missing, {spurious_ds} spurious DS DEATH records",
     )
+
+    # AE holds only serious AEs, so DTHFL=Y subjects without a fatal AE are expected;
+    # each death is explained by an FA DTHCAUSE record instead. Skipped if AE/FA absent.
+    if (datasets / "AE.csv").exists() and (datasets / "FA.csv").exists():
+        ae = _load(datasets, "AE")
+        fa = _load(datasets, "FA")
+        fatal_ae_ids = set(ae[ae["AEOUT"] == "FATAL"]["USUBJID"])
+        bad_fatal = len(fatal_ae_ids - dthfl_y_ids)
+        _check(
+            r,
+            "AE/DM: every AEOUT=FATAL subject has DTHFL=Y",
+            bad_fatal == 0,
+            f"{bad_fatal} fatal AE subjects without DTHFL=Y ({len(fatal_ae_ids)} fatal AEs, {len(dthfl_y_ids)} deaths)",
+        )
+        bad_sdth = len(set(ae[ae["AESDTH"] == "Y"]["USUBJID"]) ^ fatal_ae_ids)
+        _check(
+            r,
+            "AE: AESDTH=Y ↔ AEOUT=FATAL",
+            bad_sdth == 0,
+            f"{bad_sdth} subjects where AESDTH and AEOUT disagree",
+        )
+        cause_ids = fa[fa["FATESTCD"] == "DTHCAUSE"]["USUBJID"]
+        missing_cause = len(dthfl_y_ids - set(cause_ids))
+        spurious_cause = len(set(cause_ids) - dthfl_y_ids)
+        _check(
+            r,
+            "DM/FA: every DTHFL=Y subject has exactly one FA DTHCAUSE record",
+            missing_cause == 0 and spurious_cause == 0 and cause_ids.is_unique,
+            f"{missing_cause} deaths without cause, {spurious_cause} causes for non-deaths, "
+            f"{int(cause_ids.duplicated().sum())} duplicates",
+        )
+        cause = _first_per_key(fa[fa["FATESTCD"] == "DTHCAUSE"].set_index("USUBJID")["FAORRES"])
+        ae_term = _first_per_key(ae[ae["AEOUT"] == "FATAL"].set_index("USUBJID")["AETERM"])
+        mismatch = int((cause.reindex(ae_term.index) != ae_term).sum())
+        _check(
+            r,
+            "AE/FA: DTHCAUSE equals AETERM for fatal AE subjects",
+            mismatch == 0,
+            f"{mismatch} fatal AE subjects with a different DTHCAUSE",
+        )
 
     # ── Section 3: Within-Domain Temporal Logic ────────────────────────────
     bad_ex_order = (dt(ex["EXSTDTC"]) > dt(ex["EXENDTC"])).sum()
