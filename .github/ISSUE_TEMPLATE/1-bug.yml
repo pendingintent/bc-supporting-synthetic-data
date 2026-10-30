@@ -1,7 +1,7 @@
 name: Report a Bug
 description: An unexpected error or behavior
 projects:
-  - CDISC 360i Phase III
+  - pendingintent/17
 type: Bug
 body:
   - type: dropdown
