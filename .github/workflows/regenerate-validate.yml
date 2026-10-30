@@ -8,7 +8,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
   regenerate-validate:
@@ -32,18 +33,33 @@ jobs:
       - name: Regenerate datasets
         run: python src/cdisc_generation_functions.py
 
-      - name: Check regenerated datasets match the committed ones
-        # Informational: a mismatch means the generator changed without regenerating
-        # the committed CSVs (or output differs across platforms).
-        continue-on-error: true
-        run: |
-          if ! git diff --exit-code --stat -- datasets/; then
-            echo "::warning::Regenerated datasets differ from the committed datasets/ CSVs"
-            exit 1
-          fi
-
       - name: Validate datasets
         run: python .claude/skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
+
+      - name: Open follow-up PR with regenerated data
+        # Runs only if validation passed. Opens (or updates) one PR per base branch when the
+        # regenerated files differ from what is committed; no PR when they already match, so
+        # merging that PR does not trigger another one.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref || github.ref_name }}
+        run: |
+          git add datasets validation_report.md
+          if git diff --cached --quiet; then
+            echo "Regenerated data matches the committed data; no PR needed."
+            exit 0
+          fi
+          branch="regenerated-data/${BASE_BRANCH}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git commit -m "Regenerate synthetic datasets after merge to ${BASE_BRANCH}"
+          git push --force origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --base "$BASE_BRANCH" --state open --json number -q '.[0].number')" ]; then
+            gh pr create --base "$BASE_BRANCH" --head "$branch" \
+              --title "Regenerate synthetic datasets (${BASE_BRANCH})" \
+              --body "Automated: regenerating from \`${BASE_BRANCH}\` at ${GITHUB_SHA} produced datasets that differ from the committed \`datasets/\`. Validation passed. Review and merge to keep the committed data in sync with the generator."
+          fi
 
       - name: Publish validation report to job summary
         if: always()
