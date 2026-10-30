@@ -27,15 +27,17 @@ bc-supporting-synthetic-data/
 ├── .github/
 │   └── workflows/
 │       └── lint.yml                    # GitHub Actions: black + flake8 on every push/PR
+├── .claude/
+│   ├── settings.json                   # Shared Claude Code project settings
+│   └── skills/
+│       └── validate-synth-data/        # Claude Code skill for dataset validation
+│           ├── SKILL.md                # Skill definition and workflow
+│           ├── scripts/validate.py     # 109-check validation script
+│           ├── evals/evals.json        # Skill test prompts
+│           └── references/             # CDISC rule sets and RECIST 1.1 supplement
 ├── src/
 │   └── cdisc_generation_functions.py   # Python functions that generate all datasets
 ├── datasets/                           # Generated CDISC CSV files (see Datasets section)
-├── skills/
-│   └── validate-synth-data/            # Claude Code skill for dataset validation
-│       ├── SKILL.md                    # Skill definition and workflow
-│       ├── scripts/validate.py         # 109-check validation script
-│       ├── evals/evals.json            # Skill test prompts
-│       └── references/                 # CDISC rule sets and RECIST 1.1 supplement
 ├── docs/
 │   ├── protocol/NCT01797120.pdf        # Original trial protocol
 │   └── sap/SAP_NCT01797120.pdf         # Statistical analysis plan
@@ -152,7 +154,7 @@ A dedicated validation script checks 109 rules across seven categories:
 ### Run directly
 
 ```bash
-python skills/validate-synth-data/scripts/validate.py \
+python .claude/skills/validate-synth-data/scripts/validate.py \
   --datasets datasets/ \
   --output validation_report.md
 ```
@@ -171,7 +173,7 @@ Claude will run the script and present the report with plain-language explanatio
 
 ## Claude Code Setup
 
-This project includes a Claude Code skill (`skills/validate-synth-data/`) that adds dataset validation as a natural-language command. To activate it:
+This project ships a Claude Code skill (`.claude/skills/validate-synth-data/`) that adds dataset validation as a natural-language command. Claude Code loads project skills from `.claude/skills/` automatically, so no install step is needed.
 
 ### 1. Install Claude Code
 
@@ -181,19 +183,7 @@ npm install -g @anthropic-ai/claude-code
 
 Or download the desktop app from [claude.ai/code](https://claude.ai/code).
 
-### 2. Install the skill
-
-Copy (or symlink) the skill into your Claude Code skills directory:
-
-```bash
-# Copy
-cp -r skills/validate-synth-data ~/.claude/skills/validate-synth-data
-
-# Or symlink (changes in the repo are reflected immediately)
-ln -s "$(pwd)/skills/validate-synth-data" ~/.claude/skills/validate-synth-data
-```
-
-### 3. Open the project in Claude Code
+### 2. Open the project in Claude Code
 
 ```bash
 claude  # from the project root
@@ -206,9 +196,9 @@ In the Claude session, run:
 
 This will prompt you for instructions and create the `CLAUDE.md` file.
 
-Claude will pick up the skill from `~/.claude/skills/`.
+Claude loads the skill from `.claude/skills/` in the project.
 
-### 4. Verify the skill is active
+### 3. Verify the skill is active
 
 In the Claude Code session, run:
 
@@ -218,7 +208,7 @@ You should see a report confirming 109/109 checks pass against the committed dat
 
 ### Updating the skill
 
-If you modify `skills/validate-synth-data/scripts/validate.py` and used a symlink, the changes are live immediately. If you copied, re-run the `cp` command above.
+Edit the files under `.claude/skills/validate-synth-data/` directly; changes apply the next time Claude Code loads the skill.
 
 ---
 
