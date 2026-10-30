@@ -72,7 +72,7 @@ Then use the `validate-synth-data` skill, or run directly:
 ```
 
 All checks must pass. If you added a new cross-domain relationship, add a check for it in
-`validate.py` (see `check_timeline_death` for death/AE/FA examples), then update the check
+`validate.py` (plus a mutation case and the new `EXPECTED_CHECKS` in `tests/test_validator.py`) (see `check_timeline_death` for death/AE/FA examples), then update the check
 count in `.claude/skills/validate-synth-data/SKILL.md` and `README.md`, and mirror skill edits
 to `~/.claude/skills/validate-synth-data/`.
 
