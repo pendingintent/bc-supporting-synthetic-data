@@ -1,0 +1,60 @@
+name: Regenerate and validate synthetic data
+
+on:
+  # Runs when a PR is merged into main or a release-v* branch.
+  pull_request:
+    types: [closed]
+    branches: ["main", "release-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate-validate:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the merge commit itself, not whatever the base branch has moved on to.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Regenerate datasets
+        run: python src/cdisc_generation_functions.py
+
+      - name: Check regenerated datasets match the committed ones
+        # Informational: a mismatch means the generator changed without regenerating
+        # the committed CSVs (or output differs across platforms).
+        continue-on-error: true
+        run: |
+          if ! git diff --exit-code --stat -- datasets/; then
+            echo "::warning::Regenerated datasets differ from the committed datasets/ CSVs"
+            exit 1
+          fi
+
+      - name: Validate datasets
+        run: python .claude/skills/validate-synth-data/scripts/validate.py --datasets datasets/ --output validation_report.md
+
+      - name: Publish validation report to job summary
+        if: always()
+        run: |
+          if [ -f validation_report.md ]; then cat validation_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload regenerated datasets and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-data-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            datasets/
+            validation_report.md
