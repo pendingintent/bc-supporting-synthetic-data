@@ -15,7 +15,7 @@ description: >
 
 ## What this skill does
 
-Runs a seven-category (105-check) quality check on the CSV files in `datasets/` and produces a
+Runs a seven-category (109-check) quality check on the CSV files in `datasets/` and produces a
 markdown report (`validation_report.md`) with a pass/fail table, counts, and a PFS
 fidelity section comparing generated medians to the published trial values.
 
@@ -85,7 +85,7 @@ Per-domain checks on required columns, controlled terminology, and value formats
 
 ### Category 4 — Timeline & death logic
 - Study timeline anchoring: RFSTDTC/study-duration variability, EX/TR dates ≥ RFSTDTC, RFXENDTC ≥ RFSTDTC, RFPENDTC ≥ RFXENDTC
-- Death & post-death logic: DTHDTC ≥ RFSTDTC, no TR/RS/EX records after death, DM.DTHFL=Y ↔ DS DEATH record consistency
+- Death & post-death logic: DTHDTC ≥ RFSTDTC, no TR/RS/EX records after death, DM.DTHFL=Y ↔ DS DEATH record consistency, fatal AE ↔ DTHFL, and one FA DTHCAUSE record per death (AE only holds serious AEs, so most deaths have no AE record)
 - Within-domain temporal logic: EXSTDTC ≤ EXENDTC, no dates beyond study end (2026-12-31)
 
 ### Category 5 — Population distribution & plausibility

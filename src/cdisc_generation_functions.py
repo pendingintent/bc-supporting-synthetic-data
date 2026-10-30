@@ -1216,11 +1216,30 @@ def apply_fatal_ae(dm, ds):
 # ── FA ────────────────────────────────────────────────────────────────────────
 
 
-def create_fa(ds):
+def _death_cause(usubjid, ds, ae):
+    """
+    Cause of death for one deceased subject. AE holds only serious AEs, so a
+    death is attributed to the AE term when a fatal AE exists; otherwise to
+    DISEASE PROGRESSION if the subject has a PROGRESSIVE DISEASE disposition,
+    else UNKNOWN (cause not captured). Deterministic: no random draws.
+    """
+    fatal = ae[(ae["USUBJID"] == usubjid) & (ae["AEOUT"] == "FATAL")]
+    if len(fatal):
+        return fatal.iloc[0]["AETERM"]
+    if ((ds["USUBJID"] == usubjid) & (ds["DSDECOD"] == "PROGRESSIVE DISEASE")).any():
+        return "DISEASE PROGRESSION"
+    return "UNKNOWN"
+
+
+def create_fa(ds, ae):
     """
     FA domain: Findings About — satisfies CG0603, which requires that for every
     DS record with a non-null DSDECOD there is a corresponding FA record where
     FAOBJ = DSDECOD.
+
+    Every DS DEATH record also gets a FATESTCD=DTHCAUSE record carrying the cause
+    of death in FAORRES. This is how deaths stay explained in the data although
+    AE records only serious AEs (so most DM.DTHFL=Y subjects have no AE record).
     """
     fa_rows = []
     seq = 1
@@ -1242,6 +1261,25 @@ def create_fa(ds):
             }
         )
         seq += 1
+        if row["DSDECOD"] == "DEATH":
+            cause = _death_cause(row["USUBJID"], ds, ae)
+            fa_rows.append(
+                {
+                    "STUDYID": STUDYID,
+                    "DOMAIN": "FA",
+                    "USUBJID": row["USUBJID"],
+                    "FASEQ": seq,
+                    "_DSSEQ": row["DSSEQ"],
+                    "FATESTCD": "DTHCAUSE",
+                    "FATEST": "Cause of Death",
+                    "FAOBJ": "DEATH",
+                    "FAORRES": cause,
+                    "FASTRESC": cause,
+                    "EPOCH": row["EPOCH"],
+                    "FADTC": row["DSSTDTC"],
+                }
+            )
+            seq += 1
     return pd.DataFrame(fa_rows)
 
 
@@ -1528,7 +1566,7 @@ if __name__ == "__main__":
     dm = finalize_dm(dm, ex, events)
     ds = create_ds(dm, ex, events)
     _, ae = apply_fatal_ae(dm, ds)  # guarantees >=1 Placebo death tied to an AE
-    fa = create_fa(ds)  # findings about DS disposition events
+    fa = create_fa(ds, ae)  # findings about DS disposition events + cause of death
     relrec = create_relrec(fa, ds)  # links FA records to parent DS records (CG0603)
     adsl = create_adsl(dm, ex, rs, events)
     adtte = create_adtte(adsl, ex, events)

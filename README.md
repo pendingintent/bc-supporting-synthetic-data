@@ -33,7 +33,7 @@ bc-supporting-synthetic-data/
 ├── skills/
 │   └── validate-synth-data/            # Claude Code skill for dataset validation
 │       ├── SKILL.md                    # Skill definition and workflow
-│       ├── scripts/validate.py         # 100-check validation script
+│       ├── scripts/validate.py         # 109-check validation script
 │       ├── evals/evals.json            # Skill test prompts
 │       └── references/                 # CDISC rule sets and RECIST 1.1 supplement
 ├── docs/
@@ -46,7 +46,7 @@ bc-supporting-synthetic-data/
 ├── ONBOARDING.md                       # Onboarding guide for new contributors
 ├── requirements.txt                    # Python dependencies
 ├── setup.cfg                           # Flake8 and black configuration (max-line-length=120)
-└── validation_report.md                # Latest validation output (100/100 checks)
+└── validation_report.md                # Latest validation output (109/109 checks)
 ```
 
 ---
@@ -63,8 +63,8 @@ bc-supporting-synthetic-data/
 | `TR` | `TR.csv` | Tumor Results — per-lesion LDIAM and visit-level SUMDIAM measurements |
 | `RS` | `RS.csv` | Disease Response — CR/PR/SD/PD/NE derived from SUMDIAM per RECIST 1.1 |
 | `DS` | `DS.csv` | Disposition — informed consent, randomization, treatment stop, study end |
-| `AE` | `AE.csv` | Adverse Events — fatal SAE (`AESER`, `AESDTH`, `AEOUT="FATAL"`) for one Placebo subject's death |
-| `FA` | `FA.csv` | Findings About — occurrence indicators for DS disposition/milestone events (`FAOBJ = DSDECOD`) |
+| `AE` | `AE.csv` | Adverse Events — fatal SAE (`AESER`, `AESDTH`, `AEOUT="FATAL"`) for one Placebo subject's death; AE holds serious AEs only, so the other deaths (`DM.DTHFL=Y`) are explained by `FA` `DTHCAUSE` |
+| `FA` | `FA.csv` | Findings About — occurrence indicators for DS disposition/milestone events (`FAOBJ = DSDECOD`), plus a `DTHCAUSE` record (cause of death in `FAORRES`) for every death |
 | `RELREC` | `RELREC.csv` | Related Records — links FA and DS records per subject |
 | `TV` | `TV.csv` | Trial Visits — planned visit schedule through ~18 cycles |
 | `TA` | `TA.csv` | Trial Arms — SCREENING / INDUCTION / CONTINUATION / FOLLOW-UP epochs |
@@ -137,7 +137,7 @@ ta     = create_ta()
 
 ## Validating the Datasets
 
-A dedicated validation script checks 100 rules across seven categories:
+A dedicated validation script checks 109 rules across seven categories:
 
 | Category | Checks |
 |---|---|
@@ -214,7 +214,7 @@ In the Claude Code session, run:
 
 > *"validate my datasets"*
 
-You should see a report confirming 100/100 checks pass against the committed datasets.
+You should see a report confirming 109/109 checks pass against the committed datasets.
 
 ### Updating the skill
 

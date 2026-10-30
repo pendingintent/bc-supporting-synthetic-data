@@ -751,6 +751,46 @@ def check_timeline_death(datasets: Path) -> list[CheckResult]:
         f"{missing_ds} missing, {spurious_ds} spurious DS DEATH records",
     )
 
+    # AE holds only serious AEs, so DTHFL=Y subjects without a fatal AE are expected;
+    # each death is explained by an FA DTHCAUSE record instead. Skipped if AE/FA absent.
+    if (datasets / "AE.csv").exists() and (datasets / "FA.csv").exists():
+        ae = _load(datasets, "AE")
+        fa = _load(datasets, "FA")
+        fatal_ae_ids = set(ae[ae["AEOUT"] == "FATAL"]["USUBJID"])
+        bad_fatal = len(fatal_ae_ids - dthfl_y_ids)
+        _check(
+            r,
+            "AE/DM: every AEOUT=FATAL subject has DTHFL=Y",
+            bad_fatal == 0,
+            f"{bad_fatal} fatal AE subjects without DTHFL=Y ({len(fatal_ae_ids)} fatal AEs, {len(dthfl_y_ids)} deaths)",
+        )
+        bad_sdth = len(set(ae[ae["AESDTH"] == "Y"]["USUBJID"]) ^ fatal_ae_ids)
+        _check(
+            r,
+            "AE: AESDTH=Y ↔ AEOUT=FATAL",
+            bad_sdth == 0,
+            f"{bad_sdth} subjects where AESDTH and AEOUT disagree",
+        )
+        cause_ids = fa[fa["FATESTCD"] == "DTHCAUSE"]["USUBJID"]
+        missing_cause = len(dthfl_y_ids - set(cause_ids))
+        spurious_cause = len(set(cause_ids) - dthfl_y_ids)
+        _check(
+            r,
+            "DM/FA: every DTHFL=Y subject has exactly one FA DTHCAUSE record",
+            missing_cause == 0 and spurious_cause == 0 and cause_ids.is_unique,
+            f"{missing_cause} deaths without cause, {spurious_cause} causes for non-deaths, "
+            f"{int(cause_ids.duplicated().sum())} duplicates",
+        )
+        cause = fa[fa["FATESTCD"] == "DTHCAUSE"].set_index("USUBJID")["FAORRES"]
+        ae_term = ae[ae["AEOUT"] == "FATAL"].set_index("USUBJID")["AETERM"]
+        mismatch = int((cause.reindex(ae_term.index) != ae_term).sum())
+        _check(
+            r,
+            "AE/FA: DTHCAUSE equals AETERM for fatal AE subjects",
+            mismatch == 0,
+            f"{mismatch} fatal AE subjects with a different DTHCAUSE",
+        )
+
     # ── Section 3: Within-Domain Temporal Logic ────────────────────────────
     bad_ex_order = (dt(ex["EXSTDTC"]) > dt(ex["EXENDTC"])).sum()
     _check(
